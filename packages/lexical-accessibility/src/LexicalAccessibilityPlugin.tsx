@@ -1,0 +1,438 @@
+/**
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ *
+ */
+
+import {$isListItemNode} from '@lexical/list';
+import {useLexicalComposerContext} from '@lexical/react/LexicalComposerContext';
+import {
+  $getNodeByKey,
+  $getSelection,
+  $isRangeSelection,
+  $isTextNode,
+  COMMAND_PRIORITY_HIGH,
+  COMMAND_PRIORITY_LOW,
+  INDENT_CONTENT_COMMAND,
+  INSERT_PARAGRAPH_COMMAND,
+  KEY_BACKSPACE_COMMAND,
+  KEY_ENTER_COMMAND,
+  KEY_TAB_COMMAND,
+  OUTDENT_CONTENT_COMMAND,
+  TextNode,
+} from 'lexical';
+import {useEffect, useMemo, useRef} from 'react';
+
+import {AccessibilityLiveRegion} from './AccessibilityLiveRegion';
+import {
+  $createAccessibleTextNode,
+  AccessibleTextNode,
+} from './AccessibleTextNode';
+import {
+  generateFormatAnnouncement,
+  generateIndentAnnouncement,
+} from './announcementGenerator';
+import {AccessibilityPluginProps, DEFAULT_CONFIG} from './types';
+import {useAnnounce} from './useAnnouncementQueue';
+import {nodeConfigs, useNodeRegistry} from './useNodeRegistry';
+
+// Text format flags from Lexical
+const IS_BOLD = 1;
+const IS_ITALIC = 1 << 1; // 2
+const IS_STRIKETHROUGH = 1 << 2; // 4
+const IS_UNDERLINE = 1 << 3; // 8
+const IS_CODE = 1 << 4; // 16
+
+/**
+ * AccessibilityPlugin provides screen reader announcements for markdown
+ * transformations and editor operations in Lexical.
+ *
+ * Architecture:
+ * - Node creation/deletion announcements are handled by the Node Registry pattern
+ * - Each node type has a config in nodeConfigs/ that defines its announcements
+ * - Format changes (bold, italic, etc.) are handled separately via update listener
+ * - Indent/outdent operations are handled via command listeners
+ *
+ * @example
+ * ```tsx
+ * <LexicalComposer initialConfig={config}>
+ *   <RichTextPlugin />
+ *   <AccessibilityPlugin config={{ verbosity: 'standard' }} />
+ * </LexicalComposer>
+ * ```
+ */
+export function AccessibilityPlugin({
+  config = {},
+}: AccessibilityPluginProps): JSX.Element {
+  const [editor] = useLexicalComposerContext();
+
+  const mergedConfig = useMemo(
+    () => ({...DEFAULT_CONFIG, ...config}),
+    [config],
+  );
+
+  const {currentAnnouncement, announce} = useAnnounce();
+
+  const previousFormatsRef = useRef(new Map<string, number>());
+  const isIndentOperationRef = useRef(false);
+  const isEnterOnEmptyRef = useRef(false);
+
+  useNodeRegistry({
+    announce,
+    configs: mergedConfig.announceStructural ? nodeConfigs : [],
+    editor,
+    enabled: mergedConfig.enabled,
+    isEnterOnEmptyRef,
+    isIndentOperationRef,
+    verbosity: mergedConfig.verbosity,
+  });
+
+  // CSS-based formatting: Transform TextNodes into AccessibleTextNodes
+  // This prevents DOM node replacement for bold/italic/underline/strikethrough,
+  // eliminating "selected/unselected" announcements from screen readers
+  //
+  // NOTE: Users must add AccessibleTextNode to their editor config nodes array:
+  // nodes: [AccessibleTextNode, ...]
+  // Or use the replace pattern:
+  // nodes: [{ replace: TextNode, with: () => new AccessibleTextNode('') }, ...]
+  useEffect(() => {
+    if (!mergedConfig.enabled || !mergedConfig.useCSSFormatting) {
+      return;
+    }
+
+    // Check if AccessibleTextNode is registered
+    if (!editor.hasNode(AccessibleTextNode)) {
+      if (__DEV__) {
+        console.warn(
+          'AccessibilityPlugin: useCSSFormatting is enabled but AccessibleTextNode is not registered. ' +
+            'Add AccessibleTextNode to your editor config nodes array for CSS-based formatting to work.',
+        );
+      }
+      return;
+    }
+
+    // Transform regular TextNodes into AccessibleTextNodes
+    const unregisterTransform = editor.registerNodeTransform(
+      TextNode,
+      (node) => {
+        // Only transform base TextNode, not subclasses (including AccessibleTextNode)
+        if (node.getType() === 'text') {
+          const accessibleNode = $createAccessibleTextNode(
+            node.getTextContent(),
+          );
+          accessibleNode.setFormat(node.getFormat());
+          accessibleNode.setDetail(node.getDetail());
+          accessibleNode.setMode(node.getMode());
+          accessibleNode.setStyle(node.getStyle());
+          node.replace(accessibleNode);
+        }
+      },
+    );
+
+    return () => {
+      unregisterTransform();
+    };
+  }, [editor, mergedConfig.enabled, mergedConfig.useCSSFormatting]);
+
+  useEffect(() => {
+    if (!mergedConfig.enabled) {
+      return;
+    }
+
+    const previousFormats = previousFormatsRef.current;
+
+    const $getSelectedListItemLevel = (): number | undefined => {
+      const selection = $getSelection();
+      if (!$isRangeSelection(selection)) {
+        return undefined;
+      }
+
+      const anchorNode = selection.anchor.getNode();
+      let node: ReturnType<typeof anchorNode.getParent> | typeof anchorNode =
+        anchorNode;
+      while (node !== null) {
+        if ($isListItemNode(node)) {
+          return node.getIndent();
+        }
+        node = node.getParent();
+      }
+      return undefined;
+    };
+
+    const unregisterBackspace = editor.registerCommand(
+      KEY_BACKSPACE_COMMAND,
+      () => false,
+      COMMAND_PRIORITY_LOW,
+    );
+
+    const unregisterEnter = editor.registerCommand(
+      KEY_ENTER_COMMAND,
+      () => {
+        const selection = $getSelection();
+        if ($isRangeSelection(selection)) {
+          const anchorNode = selection.anchor.getNode();
+          let listItemNode:
+            | ReturnType<typeof anchorNode.getParent>
+            | typeof anchorNode = anchorNode;
+          while (listItemNode !== null && !$isListItemNode(listItemNode)) {
+            listItemNode = listItemNode.getParent();
+          }
+
+          if (listItemNode && $isListItemNode(listItemNode)) {
+            const textContent = listItemNode.getTextContent().trim();
+            const isEmpty = textContent.length === 0;
+            const indentLevel = listItemNode.getIndent();
+
+            if (isEmpty && indentLevel > 0) {
+              isEnterOnEmptyRef.current = true;
+              setTimeout(() => {
+                isEnterOnEmptyRef.current = false;
+              }, 50);
+            }
+          }
+        }
+
+        return false;
+      },
+      COMMAND_PRIORITY_LOW,
+    );
+
+    const unregisterTab = editor.registerCommand(
+      KEY_TAB_COMMAND,
+      () => false,
+      COMMAND_PRIORITY_LOW,
+    );
+
+    const unregisterIndent = editor.registerCommand(
+      INDENT_CONTENT_COMMAND,
+      () => {
+        isIndentOperationRef.current = true;
+
+        const currentLevel = $getSelectedListItemLevel();
+        const newLevel =
+          currentLevel !== undefined ? currentLevel + 1 : undefined;
+
+        setTimeout(() => {
+          isIndentOperationRef.current = false;
+        }, 50);
+
+        if (mergedConfig.announceStructural) {
+          const message = generateIndentAnnouncement(
+            'indent',
+            mergedConfig.verbosity,
+            newLevel,
+          );
+          announce(message);
+        }
+        return false;
+      },
+      COMMAND_PRIORITY_LOW,
+    );
+
+    const unregisterOutdent = editor.registerCommand(
+      OUTDENT_CONTENT_COMMAND,
+      () => {
+        isIndentOperationRef.current = true;
+
+        const currentLevel = $getSelectedListItemLevel();
+        const newLevel =
+          currentLevel !== undefined
+            ? Math.max(0, currentLevel - 1)
+            : undefined;
+
+        setTimeout(() => {
+          isIndentOperationRef.current = false;
+        }, 50);
+
+        if (mergedConfig.announceStructural) {
+          const message = generateIndentAnnouncement(
+            'outdent',
+            mergedConfig.verbosity,
+            newLevel,
+          );
+          announce(message);
+        }
+        return false;
+      },
+      COMMAND_PRIORITY_LOW,
+    );
+
+    // ACCESSIBILITY FIX: Intercept INSERT_PARAGRAPH_COMMAND for empty nested list items
+    // and dispatch OUTDENT_CONTENT_COMMAND instead. This makes Enter behave like Backspace
+    // (updating nodes instead of creating/destroying), preventing NVDA from announcing "out of list".
+    const unregisterInsertParagraph = editor.registerCommand(
+      INSERT_PARAGRAPH_COMMAND,
+      () => {
+        const selection = $getSelection();
+        if ($isRangeSelection(selection) && selection.isCollapsed()) {
+          const anchorNode = selection.anchor.getNode();
+
+          let listItemNode:
+            | ReturnType<typeof anchorNode.getParent>
+            | typeof anchorNode = anchorNode;
+          while (listItemNode !== null && !$isListItemNode(listItemNode)) {
+            listItemNode = listItemNode.getParent();
+          }
+
+          if (listItemNode && $isListItemNode(listItemNode)) {
+            const childrenSize = listItemNode.getChildrenSize();
+            const textContent = listItemNode.getTextContent().trim();
+            const isEmpty = childrenSize === 0 || textContent.length === 0;
+            const indent = listItemNode.getIndent();
+
+            if (isEmpty && indent > 0) {
+              editor.dispatchCommand(OUTDENT_CONTENT_COMMAND, undefined);
+              return true;
+            }
+          }
+        }
+        return false;
+      },
+      COMMAND_PRIORITY_HIGH,
+    );
+
+    const unregisterUpdate = editor.registerUpdateListener(
+      ({editorState, dirtyLeaves}) => {
+        if (!mergedConfig.announceFormats) {
+          return;
+        }
+
+        editorState.read(() => {
+          dirtyLeaves.forEach((leafKey) => {
+            const node = $getNodeByKey(leafKey);
+            if (!node || !$isTextNode(node)) {
+              return;
+            }
+
+            const key = node.getKey();
+            const currentFormat = node.getFormat();
+            const previousFormat = previousFormats.get(key) || 0;
+
+            const addedFormats = currentFormat & ~previousFormat;
+            const removedFormats = previousFormat & ~currentFormat;
+
+            const textContent = node.getTextContent();
+
+            if (addedFormats & IS_BOLD) {
+              announce(
+                generateFormatAnnouncement(
+                  'bold',
+                  true,
+                  mergedConfig.verbosity,
+                  textContent,
+                ),
+              );
+            }
+            if (addedFormats & IS_ITALIC) {
+              announce(
+                generateFormatAnnouncement(
+                  'italic',
+                  true,
+                  mergedConfig.verbosity,
+                  textContent,
+                ),
+              );
+            }
+            if (addedFormats & IS_CODE) {
+              announce(
+                generateFormatAnnouncement(
+                  'code',
+                  true,
+                  mergedConfig.verbosity,
+                  textContent,
+                ),
+              );
+            }
+            if (addedFormats & IS_UNDERLINE) {
+              announce(
+                generateFormatAnnouncement(
+                  'underline',
+                  true,
+                  mergedConfig.verbosity,
+                  textContent,
+                ),
+              );
+            }
+            if (addedFormats & IS_STRIKETHROUGH) {
+              announce(
+                generateFormatAnnouncement(
+                  'strikethrough',
+                  true,
+                  mergedConfig.verbosity,
+                  textContent,
+                ),
+              );
+            }
+
+            if (removedFormats & IS_BOLD) {
+              announce(
+                generateFormatAnnouncement(
+                  'bold',
+                  false,
+                  mergedConfig.verbosity,
+                  textContent,
+                ),
+              );
+            }
+            if (removedFormats & IS_ITALIC) {
+              announce(
+                generateFormatAnnouncement(
+                  'italic',
+                  false,
+                  mergedConfig.verbosity,
+                  textContent,
+                ),
+              );
+            }
+            if (removedFormats & IS_CODE) {
+              announce(
+                generateFormatAnnouncement(
+                  'code',
+                  false,
+                  mergedConfig.verbosity,
+                  textContent,
+                ),
+              );
+            }
+            if (removedFormats & IS_UNDERLINE) {
+              announce(
+                generateFormatAnnouncement(
+                  'underline',
+                  false,
+                  mergedConfig.verbosity,
+                  textContent,
+                ),
+              );
+            }
+            if (removedFormats & IS_STRIKETHROUGH) {
+              announce(
+                generateFormatAnnouncement(
+                  'strikethrough',
+                  false,
+                  mergedConfig.verbosity,
+                  textContent,
+                ),
+              );
+            }
+
+            previousFormats.set(key, currentFormat);
+          });
+        });
+      },
+    );
+
+    return () => {
+      unregisterBackspace();
+      unregisterEnter();
+      unregisterTab();
+      unregisterIndent();
+      unregisterOutdent();
+      unregisterInsertParagraph();
+      unregisterUpdate();
+    };
+  }, [editor, mergedConfig, announce]);
+
+  return <AccessibilityLiveRegion announcement={currentAnnouncement} />;
+}

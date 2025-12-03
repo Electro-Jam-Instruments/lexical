@@ -519,8 +519,12 @@ export function $handleListInsertParagraph(): boolean {
     replacementNode = $createParagraphNode();
     topListNode.insertAfter(replacementNode);
   } else if ($isListItemNode(grandparent)) {
-    replacementNode = $createListItemNode();
-    grandparent.insertAfter(replacementNode);
+    // ACCESSIBILITY FIX: For nested list items, use outdent instead of restructuring.
+    // This prevents screen readers (NVDA) from announcing "out of list" because
+    // $handleOutdent modifies nodes in place rather than destroying/recreating them.
+    // This makes Enter behave consistently with Backspace for empty nested list items.
+    $handleOutdent(anchor);
+    return true;
   } else {
     return false;
   }

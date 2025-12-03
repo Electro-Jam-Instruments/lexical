@@ -64,7 +64,7 @@ const sourceModuleResolution = (isSsrBuild = false) => {
       .flatMap((pkg) =>
         pkg.getExportedNpmModuleEntries().map(toAlias.bind(null, pkg)),
       ),
-    ...['shared']
+    ...['shared', 'lexical-accessibility']
       .map((name) => packagesManager.getPackageByDirectoryName(name))
       .flatMap((pkg) =>
         pkg.getPrivateModuleEntries().map(toAlias.bind(null, pkg)),
@@ -106,15 +106,16 @@ const distModuleResolution = (
           };
         }),
     ),
-    ...[packagesManager.getPackageByDirectoryName('shared')].flatMap(
-      (pkg: PackageMetadata) =>
+    ...['shared', 'lexical-accessibility']
+      .map((name) => packagesManager.getPackageByDirectoryName(name))
+      .flatMap((pkg: PackageMetadata) =>
         pkg.getPrivateModuleEntries().map((entry: ModuleExportEntry) => {
           return {
             find: entryFindRegExp(entry.name),
             replacement: pkg.resolve('src', entry.sourceFileName),
           };
         }),
-    ),
+      ),
   ];
 };
 

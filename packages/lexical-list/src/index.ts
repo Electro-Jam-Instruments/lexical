@@ -25,6 +25,7 @@ import {
   createCommand,
   defineExtension,
   INSERT_PARAGRAPH_COMMAND,
+  OUTDENT_CONTENT_COMMAND,
   safeCast,
   TextNode,
 } from 'lexical';
@@ -120,7 +121,25 @@ export function registerList(editor: LexicalEditor): () => void {
     ),
     editor.registerCommand(
       INSERT_PARAGRAPH_COMMAND,
-      () => $handleListInsertParagraph(),
+      () => {
+        // For accessibility: when pressing Enter on an empty nested list item,
+        // use OUTDENT_CONTENT_COMMAND instead of manually restructuring nodes.
+        // This matches Backspace behavior and prevents NVDA from announcing "out of list".
+        const selection = $getSelection();
+        if ($isRangeSelection(selection) && selection.isCollapsed()) {
+          const anchor = selection.anchor.getNode();
+          if ($isListItemNode(anchor) && anchor.getChildrenSize() === 0) {
+            // Empty list item - check if it's nested (indent > 0)
+            const indent = anchor.getIndent();
+            if (indent > 0) {
+              // Nested empty list item: use outdent instead of restructuring
+              return editor.dispatchCommand(OUTDENT_CONTENT_COMMAND, undefined);
+            }
+          }
+        }
+        // Fall back to original behavior for non-nested or non-empty items
+        return $handleListInsertParagraph();
+      },
       COMMAND_PRIORITY_LOW,
     ),
     editor.registerNodeTransform(ListItemNode, (node) => {

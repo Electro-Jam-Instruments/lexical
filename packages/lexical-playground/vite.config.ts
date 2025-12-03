@@ -76,4 +76,8 @@ export default defineConfig(({mode}) => ({
       strictRequires: [/\/node_modules\/(react-dom|react)\/[^/]\.js$/],
     }),
   ],
+  server: {
+    host: '0.0.0.0',
+    port: 2112,
+  },
 }));
