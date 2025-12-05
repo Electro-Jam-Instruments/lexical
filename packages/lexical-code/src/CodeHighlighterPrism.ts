@@ -601,8 +601,7 @@ function $handleShiftLines(
     return false;
   }
   if (!event.altKey) {
-    // Handle moving selection out of the code block, given there are no
-    // siblings that can natively take the selection.
+    // Handle moving selection out of the code block when at boundaries
     if (selection.isCollapsed()) {
       const codeNode = anchorNode.getParentOrThrow();
       if (
@@ -610,23 +609,29 @@ function $handleShiftLines(
         anchorOffset === 0 &&
         anchorNode.getPreviousSibling() === null
       ) {
+        // At the very start of the code block - move to previous sibling or before code block
         const codeNodeSibling = codeNode.getPreviousSibling();
         if (codeNodeSibling === null) {
           codeNode.selectPrevious();
-          event.preventDefault();
-          return true;
+        } else {
+          codeNodeSibling.selectEnd();
         }
+        event.preventDefault();
+        return true;
       } else if (
         !arrowIsUp &&
         anchorOffset === anchorNode.getTextContentSize() &&
         anchorNode.getNextSibling() === null
       ) {
+        // At the very end of the code block - move to next sibling or after code block
         const codeNodeSibling = codeNode.getNextSibling();
         if (codeNodeSibling === null) {
           codeNode.selectNext();
-          event.preventDefault();
-          return true;
+        } else {
+          codeNodeSibling.selectStart();
         }
+        event.preventDefault();
+        return true;
       }
     }
     return false;
@@ -846,21 +851,11 @@ export function registerCodeHighlighting(
         if (!$isRangeSelection(selection)) {
           return false;
         }
-        const {anchor} = selection;
-        const anchorNode = anchor.getNode();
         if (!$isSelectionInCode(selection)) {
           return false;
         }
-        // If at the start of a code block, prevent selection from moving out
-        if (
-          selection.isCollapsed() &&
-          anchor.offset === 0 &&
-          anchorNode.getPreviousSibling() === null &&
-          $isCodeNode(anchorNode.getParentOrThrow())
-        ) {
-          event.preventDefault();
-          return true;
-        }
+        // ACCESSIBILITY FIX: Allow arrow keys to exit code blocks at boundaries
+        // Moved boundary handling to $handleShiftLines for consistent behavior
         return $handleShiftLines(KEY_ARROW_UP_COMMAND, event);
       },
       COMMAND_PRIORITY_LOW,
@@ -872,21 +867,11 @@ export function registerCodeHighlighting(
         if (!$isRangeSelection(selection)) {
           return false;
         }
-        const {anchor} = selection;
-        const anchorNode = anchor.getNode();
         if (!$isSelectionInCode(selection)) {
           return false;
         }
-        // If at the end of a code block, prevent selection from moving out
-        if (
-          selection.isCollapsed() &&
-          anchor.offset === anchorNode.getTextContentSize() &&
-          anchorNode.getNextSibling() === null &&
-          $isCodeNode(anchorNode.getParentOrThrow())
-        ) {
-          event.preventDefault();
-          return true;
-        }
+        // ACCESSIBILITY FIX: Allow arrow keys to exit code blocks at boundaries
+        // Moved boundary handling to $handleShiftLines for consistent behavior
         return $handleShiftLines(KEY_ARROW_DOWN_COMMAND, event);
       },
       COMMAND_PRIORITY_LOW,

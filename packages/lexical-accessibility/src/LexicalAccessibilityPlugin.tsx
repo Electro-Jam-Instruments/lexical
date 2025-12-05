@@ -8,6 +8,7 @@
 
 import type {JSX} from 'react';
 
+import {$isCodeNode} from '@lexical/code';
 import {$isListItemNode} from '@lexical/list';
 import {useLexicalComposerContext} from '@lexical/react/LexicalComposerContext';
 import {
@@ -22,7 +23,9 @@ import {
   KEY_BACKSPACE_COMMAND,
   KEY_ENTER_COMMAND,
   KEY_TAB_COMMAND,
+  LexicalNode,
   OUTDENT_CONTENT_COMMAND,
+  SELECTION_CHANGE_COMMAND,
   TextNode,
 } from 'lexical';
 import {useEffect, useMemo, useRef} from 'react';
@@ -80,6 +83,7 @@ export function AccessibilityPlugin({
   const previousFormatsRef = useRef(new Map<string, number>());
   const isIndentOperationRef = useRef(false);
   const isEnterOnEmptyRef = useRef(false);
+  const wasInCodeBlockRef = useRef(false);
 
   useNodeRegistry({
     announce,
@@ -145,6 +149,23 @@ export function AccessibilityPlugin({
 
     const previousFormats = previousFormatsRef.current;
 
+    // Initialize code block state on mount
+    editor.getEditorState().read(() => {
+      const selection = $getSelection();
+      if ($isRangeSelection(selection)) {
+        const anchorNode = selection.anchor.getNode();
+        let node: LexicalNode | null = anchorNode;
+        while (node !== null) {
+          if ($isCodeNode(node)) {
+            wasInCodeBlockRef.current = true;
+            return;
+          }
+          node = node.getParent();
+        }
+      }
+      wasInCodeBlockRef.current = false;
+    });
+
     const $getSelectedListItemLevel = (): number | undefined => {
       const selection = $getSelection();
       if (!$isRangeSelection(selection)) {
@@ -163,6 +184,23 @@ export function AccessibilityPlugin({
       return undefined;
     };
 
+    const $isInsideCodeBlock = (): boolean => {
+      const selection = $getSelection();
+      if (!$isRangeSelection(selection)) {
+        return false;
+      }
+
+      const anchorNode = selection.anchor.getNode();
+      let node: LexicalNode | null = anchorNode;
+      while (node !== null) {
+        if ($isCodeNode(node)) {
+          return true;
+        }
+        node = node.getParent();
+      }
+      return false;
+    };
+
     const unregisterBackspace = editor.registerCommand(
       KEY_BACKSPACE_COMMAND,
       () => false,
@@ -175,6 +213,51 @@ export function AccessibilityPlugin({
         const selection = $getSelection();
         if ($isRangeSelection(selection)) {
           const anchorNode = selection.anchor.getNode();
+
+          // Check if we're inside a code block
+          if ($isInsideCodeBlock()) {
+            // Count current line number by counting line breaks before cursor
+            let codeNode: LexicalNode | null = anchorNode;
+            while (codeNode !== null && !$isCodeNode(codeNode)) {
+              codeNode = codeNode.getParent();
+            }
+
+            if (codeNode && $isCodeNode(codeNode)) {
+              const children = codeNode.getChildren();
+              let lineNumber = 1;
+
+              for (const child of children) {
+                if (child.getKey() === anchorNode.getKey()) {
+                  break;
+                }
+                // Count line breaks to determine current line
+                if (child.getType() === 'linebreak') {
+                  lineNumber++;
+                }
+              }
+
+              // After Enter, we'll be on the next line (which is blank)
+              const newLineNumber = lineNumber + 1;
+              setTimeout(() => {
+                // Only announce if we're still in a code block
+                // (Enter at end of code block exits, handled by update listener)
+                editor.getEditorState().read(() => {
+                  if ($isInsideCodeBlock()) {
+                    // Announce based on verbosity level
+                    if (mergedConfig.verbosity === 'minimal') {
+                      announce('Blank');
+                    } else {
+                      // default and verbose
+                      announce(`Blank, line ${newLineNumber}`);
+                    }
+                  }
+                });
+              }, 10);
+            }
+            return false;
+          }
+
+          // Handle list items
           let listItemNode:
             | ReturnType<typeof anchorNode.getParent>
             | typeof anchorNode = anchorNode;
@@ -295,8 +378,37 @@ export function AccessibilityPlugin({
       COMMAND_PRIORITY_HIGH,
     );
 
+    // SELECTION_CHANGE_COMMAND - not used for code block tracking
+    // because it doesn't fire reliably inside code blocks
+    // Keeping registration but empty - code block tracking is in update listener
+    const unregisterSelectionChange = editor.registerCommand(
+      SELECTION_CHANGE_COMMAND,
+      () => {
+        return false;
+      },
+      COMMAND_PRIORITY_LOW,
+    );
+
     const unregisterUpdate = editor.registerUpdateListener(
       ({editorState, dirtyLeaves}) => {
+        // Track code block enter/exit via update listener
+        // SELECTION_CHANGE_COMMAND doesn't fire reliably inside code blocks
+        editorState.read(() => {
+          if (mergedConfig.announceStructural) {
+            const isInCodeBlock = $isInsideCodeBlock();
+            const wasInCodeBlock = wasInCodeBlockRef.current;
+
+            // Announce transitions
+            if (wasInCodeBlock && !isInCodeBlock) {
+              announce('Code block exited');
+            } else if (!wasInCodeBlock && isInCodeBlock) {
+              announce('Code block entered');
+            }
+
+            wasInCodeBlockRef.current = isInCodeBlock;
+          }
+        });
+
         if (!mergedConfig.announceFormats) {
           return;
         }
@@ -432,6 +544,7 @@ export function AccessibilityPlugin({
       unregisterIndent();
       unregisterOutdent();
       unregisterInsertParagraph();
+      unregisterSelectionChange();
       unregisterUpdate();
     };
   }, [editor, mergedConfig, announce]);

@@ -19,6 +19,7 @@ import {$getNodeByKey} from 'lexical';
 import {useEffect, useRef} from 'react';
 
 import {generateIndentAnnouncement} from './announcementGenerator';
+import {codeBlockConfig} from './codeBlockConfig';
 import {headingConfig} from './headingConfig';
 import {listItemConfig} from './listItemConfig';
 
@@ -30,6 +31,7 @@ import {listItemConfig} from './listItemConfig';
 export const nodeConfigs: NodeAnnouncementConfig<any>[] = [
   listItemConfig,
   headingConfig,
+  codeBlockConfig,
 ];
 
 interface UseNodeRegistryOptions {

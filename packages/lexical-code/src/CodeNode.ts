@@ -118,6 +118,13 @@ export class CodeNode extends ElementNode {
     if (style) {
       element.setAttribute('style', style);
     }
+
+    // ACCESSIBILITY: Add role and aria-label for screen reader navigation
+    // This allows screen readers to announce entering/exiting code blocks
+    element.setAttribute('role', 'group');
+    element.setAttribute('aria-label', 'code block');
+    element.setAttribute('tabindex', '0');
+
     return element;
   }
   updateDOM(prevNode: this, dom: HTMLElement, config: EditorConfig): boolean {
