@@ -967,3 +967,86 @@ announce("Comment added to: [text]");
 - [ ] Add navigation shortcuts for jumping between annotations
 - [ ] Live region announcements for annotation operations
 - [ ] Consider "annotation count" announcements ("3 comments on this paragraph")
+
+---
+
+## Code Block Accessibility (COMPLETE)
+
+### Overview
+
+Code blocks (created with triple backticks ```) are now fully accessible with enter/exit announcements and line number feedback.
+
+### Implemented Features
+
+| Feature | Announcement | Verbosity |
+|---------|-------------|-----------|
+| Arrow into code block | "Code block entered" | All levels |
+| Arrow out of code block | "Code block exited" | All levels |
+| Enter inside code block | "Blank" | Minimal |
+| Enter inside code block | "Blank, line N" | Default/Verbose |
+| Create code block (```) | "Code block started" | All levels |
+| Delete code block | "Code block removed" | All levels |
+
+### Implementation Details
+
+1. **Enter/Exit Detection**: Uses `registerUpdateListener` instead of `SELECTION_CHANGE_COMMAND` because SELECTION_CHANGE doesn't fire reliably inside code blocks.
+
+2. **Line Counting**: Counts `linebreak` nodes within the CodeNode to determine current line number.
+
+3. **Exit Check**: When Enter is pressed, a setTimeout check verifies we're still in the code block before announcing line number (prevents double announcement on exit).
+
+4. **Arrow Key Navigation Fix**: Modified `CodeHighlighterPrism.ts` to allow cursor to exit code blocks at boundaries (previously trapped at offset=0).
+
+### Files Modified
+
+- `packages/lexical-accessibility/src/LexicalAccessibilityPlugin.tsx` - Enter key handling, update listener
+- `packages/lexical-accessibility/src/codeBlockConfig.ts` - Node announcement config for create/remove
+- `packages/lexical-accessibility/src/useNodeRegistry.ts` - Register code block config
+- `packages/lexical-code/src/CodeHighlighterPrism.ts` - Fix arrow key exit at boundaries
+- `packages/lexical-code/src/CodeNode.ts` - ARIA attributes (role="group", aria-label="code block")
+
+---
+
+## Inline Code Accessibility (COMPLETE)
+
+### Overview
+
+Inline code (text formatted with backticks or Ctrl+`) now announces enter/exit transitions with verbosity-aware messages.
+
+### Implemented Features
+
+| Feature | Announcement | Verbosity |
+|---------|-------------|-----------|
+| Arrow into inline code | "Code" | Standard |
+| Arrow out of inline code | "End code" | Standard |
+| Arrow into inline code | "Entering code" | Verbose |
+| Arrow out of inline code | "Exiting code" | Verbose |
+| Arrow into/out of inline code | (no announcement) | Minimal |
+
+### Implementation Details
+
+1. **Detection**: Uses `IS_CODE` format flag (value 16) on TextNode to detect inline code.
+
+2. **State Tracking**: `wasInInlineCodeRef` tracks previous state between updates.
+
+3. **Update Listener**: Same pattern as code blocks - uses `registerUpdateListener` for reliable detection.
+
+4. **Code Block Exclusion**: Inline code tracking is disabled when inside a code block to avoid conflicts.
+
+### Code
+
+```typescript
+const $isInsideInlineCode = (): boolean => {
+  const selection = $getSelection();
+  if (!$isRangeSelection(selection)) return false;
+
+  const anchorNode = selection.anchor.getNode();
+  if (!$isTextNode(anchorNode)) return false;
+
+  return (anchorNode.getFormat() & IS_CODE) !== 0;
+};
+```
+
+### Files Modified
+
+- `packages/lexical-accessibility/src/LexicalAccessibilityPlugin.tsx` - Inline code detection and announcements

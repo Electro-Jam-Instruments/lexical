@@ -84,6 +84,7 @@ export function AccessibilityPlugin({
   const isIndentOperationRef = useRef(false);
   const isEnterOnEmptyRef = useRef(false);
   const wasInCodeBlockRef = useRef(false);
+  const wasInInlineCodeRef = useRef(false);
 
   useNodeRegistry({
     announce,
@@ -149,21 +150,35 @@ export function AccessibilityPlugin({
 
     const previousFormats = previousFormatsRef.current;
 
-    // Initialize code block state on mount
+    // Initialize code block and inline code state on mount
     editor.getEditorState().read(() => {
       const selection = $getSelection();
       if ($isRangeSelection(selection)) {
         const anchorNode = selection.anchor.getNode();
+
+        // Check for code block
         let node: LexicalNode | null = anchorNode;
         while (node !== null) {
           if ($isCodeNode(node)) {
             wasInCodeBlockRef.current = true;
-            return;
+            break;
           }
           node = node.getParent();
         }
+        if (node === null) {
+          wasInCodeBlockRef.current = false;
+        }
+
+        // Check for inline code
+        if ($isTextNode(anchorNode)) {
+          wasInInlineCodeRef.current = (anchorNode.getFormat() & IS_CODE) !== 0;
+        } else {
+          wasInInlineCodeRef.current = false;
+        }
+      } else {
+        wasInCodeBlockRef.current = false;
+        wasInInlineCodeRef.current = false;
       }
-      wasInCodeBlockRef.current = false;
     });
 
     const $getSelectedListItemLevel = (): number | undefined => {
@@ -199,6 +214,21 @@ export function AccessibilityPlugin({
         node = node.getParent();
       }
       return false;
+    };
+
+    const $isInsideInlineCode = (): boolean => {
+      const selection = $getSelection();
+      if (!$isRangeSelection(selection)) {
+        return false;
+      }
+
+      const anchorNode = selection.anchor.getNode();
+      if (!$isTextNode(anchorNode)) {
+        return false;
+      }
+
+      // Check if the text node has the code format flag
+      return (anchorNode.getFormat() & IS_CODE) !== 0;
     };
 
     const unregisterBackspace = editor.registerCommand(
@@ -391,14 +421,15 @@ export function AccessibilityPlugin({
 
     const unregisterUpdate = editor.registerUpdateListener(
       ({editorState, dirtyLeaves}) => {
-        // Track code block enter/exit via update listener
+        // Track code block and inline code enter/exit via update listener
         // SELECTION_CHANGE_COMMAND doesn't fire reliably inside code blocks
         editorState.read(() => {
           if (mergedConfig.announceStructural) {
+            // Track code block transitions
             const isInCodeBlock = $isInsideCodeBlock();
             const wasInCodeBlock = wasInCodeBlockRef.current;
 
-            // Announce transitions
+            // Announce code block transitions
             if (wasInCodeBlock && !isInCodeBlock) {
               announce('Code block exited');
             } else if (!wasInCodeBlock && isInCodeBlock) {
@@ -406,6 +437,37 @@ export function AccessibilityPlugin({
             }
 
             wasInCodeBlockRef.current = isInCodeBlock;
+
+            // Track inline code transitions (only when not in code block)
+            // Inline code detection is based on the IS_CODE format flag on TextNode
+            if (!isInCodeBlock) {
+              const isInInlineCode = $isInsideInlineCode();
+              const wasInInlineCode = wasInInlineCodeRef.current;
+
+              // Announce inline code transitions with verbosity awareness
+              if (wasInInlineCode && !isInInlineCode) {
+                // Exiting inline code
+                if (mergedConfig.verbosity === 'verbose') {
+                  announce('Exiting code');
+                } else if (mergedConfig.verbosity === 'standard') {
+                  announce('End code');
+                }
+                // minimal: no announcement
+              } else if (!wasInInlineCode && isInInlineCode) {
+                // Entering inline code
+                if (mergedConfig.verbosity === 'verbose') {
+                  announce('Entering code');
+                } else if (mergedConfig.verbosity === 'standard') {
+                  announce('Code');
+                }
+                // minimal: no announcement
+              }
+
+              wasInInlineCodeRef.current = isInInlineCode;
+            } else {
+              // Reset inline code state when inside code block
+              wasInInlineCodeRef.current = false;
+            }
           }
         });
 
