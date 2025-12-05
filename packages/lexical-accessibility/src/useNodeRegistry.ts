@@ -26,14 +26,16 @@ import {listItemConfig} from './listItemConfig';
  * All registered node announcement configurations.
  * Add new configs here to enable announcements for additional node types.
  */
-export const nodeConfigs: NodeAnnouncementConfig[] = [
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export const nodeConfigs: NodeAnnouncementConfig<any>[] = [
   listItemConfig,
   headingConfig,
 ];
 
 interface UseNodeRegistryOptions {
   editor: LexicalEditor;
-  configs: NodeAnnouncementConfig[];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  configs: NodeAnnouncementConfig<any>[];
   verbosity: Verbosity;
   enabled: boolean;
   announce: (message: string) => void;

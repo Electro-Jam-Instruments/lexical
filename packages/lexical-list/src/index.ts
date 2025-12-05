@@ -43,13 +43,15 @@ import {
   ListItemNode,
 } from './LexicalListItemNode';
 import {$createListNode, $isListNode, ListNode} from './LexicalListNode';
-import {$getListDepth} from './utils';
+import {$getListDepth, $getNestedListNode, $hasNestedList} from './utils';
 
 export {
   $createListItemNode,
   $createListNode,
   $getListDepth,
+  $getNestedListNode,
   $handleListInsertParagraph,
+  $hasNestedList,
   $insertList,
   $isListItemNode,
   $isListNode,

@@ -131,8 +131,10 @@ const NestedListNodeBrand: unique symbol = Symbol.for(
 
 /**
  * Checks to see if the passed node is a ListItemNode and has a ListNode as a child.
+ * This function checks if the first child is a ListNode (legacy empty wrapper structure).
+ * For the accessible structure where text comes before the nested list, use $hasNestedList().
  * @param node - The node to be checked.
- * @returns true if the node is a ListItemNode and has a ListNode child, false otherwise.
+ * @returns true if the node is a ListItemNode and has a ListNode as first child, false otherwise.
  */
 export function isNestedListNode(
   node: LexicalNode | null | undefined,
@@ -141,6 +143,37 @@ export function isNestedListNode(
   ListItemNode
 > {
   return $isListItemNode(node) && $isListNode(node.getFirstChild());
+}
+
+/**
+ * Checks if a ListItemNode contains a nested ListNode anywhere in its children.
+ * This supports both the legacy structure (nested list as first child) and the
+ * accessible structure (text content followed by nested list).
+ * @param listItemNode - The ListItemNode to check.
+ * @returns The nested ListNode if found, null otherwise.
+ */
+export function $getNestedListNode(
+  listItemNode: ListItemNode,
+): ListNode | null {
+  const children = listItemNode.getChildren();
+  for (const child of children) {
+    if ($isListNode(child)) {
+      return child;
+    }
+  }
+  return null;
+}
+
+/**
+ * Checks if a ListItemNode has any nested ListNode child.
+ * Supports both legacy (first child) and accessible (any child) structures.
+ * @param node - The node to be checked.
+ * @returns true if the node is a ListItemNode with any ListNode child, false otherwise.
+ */
+export function $hasNestedList(
+  node: LexicalNode | null | undefined,
+): node is ListItemNode {
+  return $isListItemNode(node) && node.getChildren().some($isListNode);
 }
 
 /**

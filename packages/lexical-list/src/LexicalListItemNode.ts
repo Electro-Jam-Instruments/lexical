@@ -42,7 +42,7 @@ import normalizeClassNames from 'shared/normalizeClassNames';
 
 import {$createListNode, $isListNode} from './';
 import {$handleIndent, $handleOutdent, mergeLists} from './formatList';
-import {isNestedListNode} from './utils';
+import {$getListDepth, isNestedListNode} from './utils';
 
 export type SerializedListItemNode = Spread<
   {
@@ -146,6 +146,34 @@ export class ListItemNode extends ElementNode {
       }
     }
     applyMarkerStyles(dom, this, prevNode);
+
+    // ACCESSIBILITY: Add aria-posinset, aria-setsize, and aria-level for screen reader announcements
+    // This allows NVDA/JAWS to announce "X of Y at level Z" when navigating list items
+    const parent = this.getParent();
+    if ($isListNode(parent)) {
+      const siblings = parent.getChildren();
+      let position = 0;
+      let total = 0;
+      for (const sibling of siblings) {
+        if ($isListItemNode(sibling)) {
+          // Count all list items EXCEPT empty nested list wrappers
+          // (wrappers where the first child is a ListNode and there's no text content)
+          if (!isNestedListNode(sibling)) {
+            total++;
+            if (sibling.getKey() === this.getKey()) {
+              position = total;
+            }
+          }
+        }
+      }
+      if (position > 0 && total > 0) {
+        dom.setAttribute('aria-posinset', String(position));
+        dom.setAttribute('aria-setsize', String(total));
+      }
+      // Add aria-level for nesting depth (1 = top level, 2 = first nested level, etc.)
+      const level = $getListDepth(parent);
+      dom.setAttribute('aria-level', String(level));
+    }
   }
 
   updateDOM(
@@ -508,7 +536,10 @@ function $setListItemThemeClassNames(
   if (nestedListItemClassName !== undefined) {
     const nestedListItemClasses = normalizeClassNames(nestedListItemClassName);
 
-    if (node.getChildren().some((child) => $isListNode(child))) {
+    // Only apply nested class to EMPTY wrapper li elements (where first child is a ListNode)
+    // This preserves markers for list items that have both text content AND nested lists
+    // (the accessible structure: <li>Text<ol><li>nested</li></ol></li>)
+    if (isNestedListNode(node)) {
       classesToAdd.push(...nestedListItemClasses);
     } else {
       classesToRemove.push(...nestedListItemClasses);

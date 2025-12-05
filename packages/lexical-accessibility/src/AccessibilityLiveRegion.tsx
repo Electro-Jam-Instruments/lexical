@@ -6,6 +6,8 @@
  *
  */
 
+import type {JSX} from 'react';
+
 interface AccessibilityLiveRegionProps {
   announcement: string;
 }
@@ -20,7 +22,7 @@ export function AccessibilityLiveRegion({
   return (
     <div
       role="status"
-      aria-live="polite"
+      aria-live="assertive"
       aria-atomic="true"
       style={{
         height: '1px',
