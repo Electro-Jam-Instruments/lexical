@@ -62,6 +62,7 @@ export function DropDownItem({
       className={className}
       onClick={onClick}
       ref={ref}
+      role="menuitem"
       title={title}
       type="button">
       {children}
@@ -101,11 +102,12 @@ function DropDownItems({
       return;
     }
 
-    if (['Escape', 'ArrowUp', 'ArrowDown', 'Tab'].includes(key)) {
+    if (['Escape', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'Tab'].includes(key)) {
       event.preventDefault();
     }
 
-    if (key === 'Escape' || key === 'Tab') {
+    if (key === 'Escape' || key === 'Tab' || key === 'ArrowLeft') {
+      // ArrowLeft closes submenu and returns focus to parent
       onClose();
     } else if (key === 'ArrowUp') {
       setHighlightedItem((prev) => {
@@ -150,7 +152,11 @@ function DropDownItems({
 
   return (
     <DropDownContext.Provider value={contextValue}>
-      <div className="dropdown" ref={dropDownRef} onKeyDown={handleKeyDown}>
+      <div
+        className="dropdown"
+        ref={dropDownRef}
+        role="menu"
+        onKeyDown={handleKeyDown}>
         {children}
       </div>
     </DropDownContext.Provider>
@@ -259,14 +265,27 @@ export default function DropDown({
     setShouldAutofocus(isKeyboardInput(e));
   };
 
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    // ArrowRight or Enter/Space opens submenu
+    if (e.key === 'ArrowRight' || e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      setShowDropDown(true);
+      setShouldAutofocus(true);
+    }
+  };
+
   return (
     <>
       <button
         type="button"
         disabled={disabled}
         aria-label={buttonAriaLabel || buttonLabel}
+        aria-haspopup="menu"
+        aria-expanded={showDropDown}
+        role="menuitem"
         className={buttonClassName}
         onClick={handleOnClick}
+        onKeyDown={handleKeyDown}
         ref={buttonRef}>
         {buttonIconClassName && <span className={buttonIconClassName} />}
         {buttonLabel && (
