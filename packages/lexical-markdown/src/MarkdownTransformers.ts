@@ -33,9 +33,23 @@ import {
   QuoteNode,
 } from '@lexical/rich-text';
 import {
+  $createTableCellNode,
+  $createTableNode,
+  $createTableRowNode,
+  $isTableCellNode,
+  $isTableNode,
+  $isTableRowNode,
+  TableCellHeaderStates,
+  TableCellNode,
+  TableNode,
+  TableRowNode,
+} from '@lexical/table';
+import {
   $createLineBreakNode,
   $createTextNode,
   $getState,
+  $isParagraphNode,
+  $isTextNode,
   $setState,
   createState,
   ElementNode,
@@ -44,6 +58,9 @@ import {
   TextFormatType,
   TextNode,
 } from 'lexical';
+
+import {createMarkdownExport} from './MarkdownExport';
+import {createMarkdownImport} from './MarkdownImport';
 
 export type Transformer =
   | ElementTransformer
@@ -513,6 +530,178 @@ export const ORDERED_LIST: ElementTransformer = {
   type: 'element',
 };
 
+// Table transformer helper functions
+function getTableColumnsSize(table: TableNode): number {
+  const row = table.getFirstChild();
+  return $isTableRowNode(row) ? row.getChildrenSize() : 0;
+}
+
+// Cell transformers - text formatting only (no element transformers = no recursion)
+let CELL_TRANSFORMERS: Array<Transformer>;
+
+const $createTableCell = (textContent: string): TableCellNode => {
+  textContent = textContent.replace(/\\n/g, '\n');
+  const cell = $createTableCellNode(TableCellHeaderStates.NO_STATUS);
+  // Lazy initialize - only text formatters for cell content (no element transformers = no TABLE = no recursion)
+  if (!CELL_TRANSFORMERS) {
+    CELL_TRANSFORMERS = [
+      ...TEXT_FORMAT_TRANSFORMERS,
+      ...TEXT_MATCH_TRANSFORMERS,
+    ];
+  }
+  // Use createMarkdownImport with cell as second parameter
+  // This imports markdown into the cell node, not the root
+  // Using only text transformers prevents infinite recursion from TABLE matching
+  const importMarkdown = createMarkdownImport(CELL_TRANSFORMERS, false);
+  importMarkdown(textContent, cell);
+  return cell;
+};
+
+const mapToTableCells = (textContent: string): Array<TableCellNode> | null => {
+  const match = textContent.match(TABLE_ROW_REG_EXP);
+  if (!match || !match[1]) {
+    return null;
+  }
+  return match[1].split('|').map((text) => $createTableCell(text));
+};
+
+export const TABLE: ElementTransformer = {
+  dependencies: [TableNode, TableRowNode, TableCellNode],
+  export: (node: LexicalNode) => {
+    if (!$isTableNode(node)) {
+      return null;
+    }
+
+    const output: string[] = [];
+
+    for (const row of node.getChildren()) {
+      const rowOutput = [];
+      if (!$isTableRowNode(row)) {
+        continue;
+      }
+
+      let isHeaderRow = false;
+      for (const cell of row.getChildren()) {
+        if ($isTableCellNode(cell)) {
+          // Use CELL_TRANSFORMERS (no TABLE) to prevent recursion
+          if (!CELL_TRANSFORMERS) {
+            CELL_TRANSFORMERS = [
+              ...TEXT_FORMAT_TRANSFORMERS,
+              ...TEXT_MATCH_TRANSFORMERS,
+            ];
+          }
+          const exportMarkdown = createMarkdownExport(CELL_TRANSFORMERS, false);
+          rowOutput.push(exportMarkdown(cell).replace(/\n/g, '\\n').trim());
+          if (cell.__headerState === TableCellHeaderStates.ROW) {
+            isHeaderRow = true;
+          }
+        }
+      }
+
+      output.push(`| ${rowOutput.join(' | ')} |`);
+      if (isHeaderRow) {
+        output.push(`| ${rowOutput.map(() => '---').join(' | ')} |`);
+      }
+    }
+
+    return output.join('\n');
+  },
+  regExp: TABLE_ROW_REG_EXP,
+  replace: (parentNode, _1, match) => {
+    // Header row divider - mark previous row as header
+    if (TABLE_ROW_DIVIDER_REG_EXP.test(match[0])) {
+      const table = parentNode.getPreviousSibling();
+      if (!table || !$isTableNode(table)) {
+        return;
+      }
+
+      const rows = table.getChildren();
+      const lastRow = rows[rows.length - 1];
+      if (!lastRow || !$isTableRowNode(lastRow)) {
+        return;
+      }
+
+      // Add header state to row cells
+      lastRow.getChildren().forEach((cell) => {
+        if (!$isTableCellNode(cell)) {
+          return;
+        }
+        cell.setHeaderStyles(
+          TableCellHeaderStates.ROW,
+          TableCellHeaderStates.ROW,
+        );
+      });
+
+      // Remove line
+      parentNode.remove();
+      return;
+    }
+
+    const matchCells = mapToTableCells(match[0]);
+
+    if (matchCells == null) {
+      return;
+    }
+
+    const rows = [matchCells];
+    let sibling = parentNode.getPreviousSibling();
+    let maxCells = matchCells.length;
+
+    while (sibling) {
+      if (!$isParagraphNode(sibling)) {
+        break;
+      }
+
+      if (sibling.getChildrenSize() !== 1) {
+        break;
+      }
+
+      const firstChild = sibling.getFirstChild();
+
+      if (!$isTextNode(firstChild)) {
+        break;
+      }
+
+      const cells = mapToTableCells(firstChild.getTextContent());
+
+      if (cells == null) {
+        break;
+      }
+
+      maxCells = Math.max(maxCells, cells.length);
+      rows.unshift(cells);
+      const previousSibling = sibling.getPreviousSibling();
+      sibling.remove();
+      sibling = previousSibling;
+    }
+
+    const table = $createTableNode();
+
+    for (const cells of rows) {
+      const tableRow = $createTableRowNode();
+      table.append(tableRow);
+
+      for (let i = 0; i < maxCells; i++) {
+        tableRow.append(i < cells.length ? cells[i] : $createTableCell(''));
+      }
+    }
+
+    const previousSibling = parentNode.getPreviousSibling();
+    if (
+      $isTableNode(previousSibling) &&
+      getTableColumnsSize(previousSibling) === maxCells
+    ) {
+      previousSibling.append(...table.getChildren());
+      parentNode.remove();
+    } else {
+      parentNode.replace(table);
+    }
+
+    table.selectEnd();
+  },
+  type: 'element',
+};
+
 export const INLINE_CODE: TextFormatTransformer = {
   format: ['code'],
   tag: '`',
@@ -622,7 +811,10 @@ export const LINK: TextMatchTransformer = {
   type: 'text-match',
 };
 
+// TABLE transformer is included in ELEMENT_TRANSFORMERS.
+// Cell content uses CELL_TRANSFORMERS (text formatting only) to prevent recursion.
 export const ELEMENT_TRANSFORMERS: Array<ElementTransformer> = [
+  TABLE,
   HEADING,
   QUOTE,
   UNORDERED_LIST,

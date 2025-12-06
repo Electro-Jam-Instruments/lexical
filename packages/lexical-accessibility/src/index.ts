@@ -48,4 +48,10 @@ export type {
   NodeMetadata,
   Verbosity,
 } from './nodeConfigTypes';
-export {nodeConfigs,useNodeRegistry} from './useNodeRegistry';
+export {nodeConfigs, useNodeRegistry} from './useNodeRegistry';
+
+// Markdown utilities
+export {
+  $insertMarkdownAtSelection,
+  $replaceWithMarkdown,
+} from './markdownUtils';

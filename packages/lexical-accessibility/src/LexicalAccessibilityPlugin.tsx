@@ -16,6 +16,7 @@ import {
   $getSelection,
   $isRangeSelection,
   $isTextNode,
+  COMMAND_PRIORITY_CRITICAL,
   COMMAND_PRIORITY_HIGH,
   COMMAND_PRIORITY_LOW,
   INDENT_CONTENT_COMMAND,
@@ -25,6 +26,7 @@ import {
   KEY_TAB_COMMAND,
   LexicalNode,
   OUTDENT_CONTENT_COMMAND,
+  PASTE_COMMAND,
   SELECTION_CHANGE_COMMAND,
   TextNode,
 } from 'lexical';
@@ -39,6 +41,7 @@ import {
   generateFormatAnnouncement,
   generateIndentAnnouncement,
 } from './announcementGenerator';
+import {$insertMarkdownAtSelection} from './markdownUtils';
 import {AccessibilityPluginProps, DEFAULT_CONFIG} from './types';
 import {useAnnounce} from './useAnnouncementQueue';
 import {nodeConfigs, useNodeRegistry} from './useNodeRegistry';
@@ -419,6 +422,65 @@ export function AccessibilityPlugin({
       COMMAND_PRIORITY_LOW,
     );
 
+    // Smart Paste as Markdown
+    // - Ctrl+Shift+V always parses as markdown (explicit override)
+    // - Normal Ctrl+V uses smart detection:
+    //   - If HTML has rich formatting (strong, em, h1, etc.) → use default paste
+    //   - If HTML is just structural (div, span, p) → parse as markdown
+    //   - If no HTML → parse as markdown
+    const hasRichFormatting = (html: string): boolean => {
+      // Tags that indicate actual formatting worth preserving
+      const richPatterns = [
+        /<(strong|b|em|i|u|s|strike|del|mark)\b/i, // Text formatting
+        /<(h[1-6])\b/i, // Headings
+        /<(ul|ol|li)\b/i, // Lists
+        /<(pre|code)\b/i, // Code
+        /<(blockquote)\b/i, // Quotes
+        /<a\s+href/i, // Links with href
+      ];
+      return richPatterns.some((p) => p.test(html));
+    };
+
+    const unregisterPaste = editor.registerCommand(
+      PASTE_COMMAND,
+      (event: ClipboardEvent) => {
+        const clipboardData = event.clipboardData;
+        if (!clipboardData) {
+          return false;
+        }
+
+        const plainText = clipboardData.getData('text/plain');
+        if (!plainText) {
+          return false;
+        }
+
+        const htmlText = clipboardData.getData('text/html');
+
+        // Ctrl+Shift+V: Always parse as markdown (explicit override)
+        if (event.shiftKey) {
+          event.preventDefault();
+          editor.update(() => {
+            $insertMarkdownAtSelection(plainText);
+          });
+          return true;
+        }
+
+        // Smart detection for normal Ctrl+V:
+        // If no HTML or HTML has no rich formatting → parse as markdown
+        if (!htmlText || !hasRichFormatting(htmlText)) {
+          event.preventDefault();
+          editor.update(() => {
+            $insertMarkdownAtSelection(plainText);
+          });
+          return true;
+        }
+
+        // HTML has rich formatting → let default handler use it
+        return false;
+      },
+      COMMAND_PRIORITY_CRITICAL, // Higher priority than default paste handler
+    );
+
     const unregisterUpdate = editor.registerUpdateListener(
       ({editorState, dirtyLeaves}) => {
         // Track code block and inline code enter/exit via update listener
@@ -607,6 +669,7 @@ export function AccessibilityPlugin({
       unregisterOutdent();
       unregisterInsertParagraph();
       unregisterSelectionChange();
+      unregisterPaste();
       unregisterUpdate();
     };
   }, [editor, mergedConfig, announce]);
