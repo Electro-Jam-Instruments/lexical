@@ -16,9 +16,34 @@
   "version": "0.38.2",
   "main": "LexicalAccessibility.js",
   "types": "index.d.ts",
-  "private": true,
+  "module": "LexicalAccessibility.mjs",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/facebook/lexical",
+    "directory": "packages/lexical-accessibility"
+  },
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./index.d.ts",
+        "development": "./LexicalAccessibility.dev.mjs",
+        "production": "./LexicalAccessibility.prod.mjs",
+        "node": "./LexicalAccessibility.node.mjs",
+        "default": "./LexicalAccessibility.mjs"
+      },
+      "require": {
+        "types": "./index.d.ts",
+        "development": "./LexicalAccessibility.dev.js",
+        "production": "./LexicalAccessibility.prod.js",
+        "default": "./LexicalAccessibility.js"
+      }
+    }
+  },
   "dependencies": {
+    "@lexical/code": "0.38.2",
     "@lexical/list": "0.38.2",
+    "@lexical/markdown": "0.38.2",
     "@lexical/react": "0.38.2",
     "@lexical/rich-text": "0.38.2",
     "lexical": "0.38.2"
@@ -26,11 +51,5 @@
   "peerDependencies": {
     "react": ">=18.0.0",
     "react-dom": ">=18.0.0"
-  },
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/facebook/lexical",
-    "directory": "packages/lexical-accessibility"
-  },
-  "sideEffects": false
+  }
 }

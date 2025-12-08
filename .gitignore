@@ -37,3 +37,36 @@ npm-debug.log*
 .idea/**/shelf
 
 .idea
+
+# Build artifacts copied to package roots by pack-releases.sh
+packages/*/*.dev.js
+packages/*/*.prod.js
+packages/*/*.dev.mjs
+packages/*/*.prod.mjs
+packages/*/*.node.mjs
+packages/*/*.mjs
+packages/*/*.d.ts
+packages/*/shared/
+releases/
+
+# Build artifacts generated in lexical-react (many entry point .js files)
+packages/lexical-react/Lexical*.js
+packages/lexical-react/useLexical*.js
+
+# Build artifacts in lexical core
+packages/lexical/caret/
+packages/lexical/extension-core/
+packages/lexical/nodes/
+
+# Planning docs (internal only)
+packages/lexical-accessibility/*_PLAN.md
+
+# Test directories
+packages/*/src/__tests__/
+
+# Local claude config
+.claude/
+
+# Fork-specific tooling (release scripts, internal docs)
+# These are NOT part of Lexical - just our distribution tools
+.fork-tools/

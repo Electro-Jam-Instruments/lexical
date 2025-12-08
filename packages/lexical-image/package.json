@@ -1,0 +1,50 @@
+{
+  "name": "@lexical/image",
+  "description": "Image support for Lexical - ImageNode, ImagesPlugin, and drag/drop paste handling.",
+  "keywords": [
+    "lexical",
+    "image",
+    "images",
+    "paste",
+    "drag-drop",
+    "rich-text"
+  ],
+  "license": "MIT",
+  "version": "0.38.2",
+  "main": "LexicalImage.js",
+  "types": "index.d.ts",
+  "module": "LexicalImage.mjs",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/facebook/lexical",
+    "directory": "packages/lexical-image"
+  },
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./index.d.ts",
+        "development": "./LexicalImage.dev.mjs",
+        "production": "./LexicalImage.prod.mjs",
+        "node": "./LexicalImage.node.mjs",
+        "default": "./LexicalImage.mjs"
+      },
+      "require": {
+        "types": "./index.d.ts",
+        "development": "./LexicalImage.dev.js",
+        "production": "./LexicalImage.prod.js",
+        "default": "./LexicalImage.js"
+      }
+    }
+  },
+  "dependencies": {
+    "@lexical/react": "0.38.2",
+    "@lexical/rich-text": "0.38.2",
+    "@lexical/utils": "0.38.2",
+    "lexical": "0.38.2"
+  },
+  "peerDependencies": {
+    "react": ">=18.0.0",
+    "react-dom": ">=18.0.0"
+  }
+}

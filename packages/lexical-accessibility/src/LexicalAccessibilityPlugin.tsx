@@ -449,6 +449,12 @@ export function AccessibilityPlugin({
           return false;
         }
 
+        // Let file pastes (images) pass through to DragDropPastePlugin
+        const hasFiles = clipboardData.types.includes('Files');
+        if (hasFiles) {
+          return false;
+        }
+
         const plainText = clipboardData.getData('text/plain');
         if (!plainText) {
           return false;
@@ -456,8 +462,16 @@ export function AccessibilityPlugin({
 
         const htmlText = clipboardData.getData('text/html');
 
-        // Ctrl+Shift+V: Always parse as markdown (explicit override)
-        if (event.shiftKey) {
+        // Check if the plain text actually contains markdown syntax
+        // Only intercept if there's actual markdown to parse
+        const hasMarkdownSyntax =
+          /(\*\*|__|~~|`|^#{1,6}\s|^\s*[-*+]\s|^\s*\d+\.\s|^\s*>|^\|.*\|$)/m.test(
+            plainText,
+          );
+
+        // Smart detection for Ctrl+V:
+        // If no HTML or HTML has no rich formatting, AND text has markdown → parse as markdown
+        if ((!htmlText || !hasRichFormatting(htmlText)) && hasMarkdownSyntax) {
           event.preventDefault();
           editor.update(() => {
             $insertMarkdownAtSelection(plainText);
@@ -465,17 +479,7 @@ export function AccessibilityPlugin({
           return true;
         }
 
-        // Smart detection for normal Ctrl+V:
-        // If no HTML or HTML has no rich formatting → parse as markdown
-        if (!htmlText || !hasRichFormatting(htmlText)) {
-          event.preventDefault();
-          editor.update(() => {
-            $insertMarkdownAtSelection(plainText);
-          });
-          return true;
-        }
-
-        // HTML has rich formatting → let default handler use it
+        // No markdown syntax or HTML has rich formatting → let default handler handle it
         return false;
       },
       COMMAND_PRIORITY_CRITICAL, // Higher priority than default paste handler

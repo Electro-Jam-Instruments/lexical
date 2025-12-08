@@ -12,20 +12,24 @@ import {
   TRANSFORMERS,
 } from '@lexical/markdown';
 import {
+  $createParagraphNode,
+  $createRangeSelection,
+  $createTextNode,
   $getRoot,
   $getSelection,
+  $insertNodes,
+  $isElementNode,
   $isRangeSelection,
-  $parseSerializedNode,
-  type SerializedLexicalNode,
+  $setSelection,
+  type LexicalNode,
 } from 'lexical';
 
 /**
  * Inserts markdown content at the current selection position.
  * Parses the markdown string and inserts the resulting nodes at cursor.
  *
- * For complex block-level content (tables, code blocks, etc.), this function
- * uses JSON serialization to safely preserve existing content while the
- * markdown parser operates on the root, then reconstructs the complete tree.
+ * Uses a temporary root approach: parse markdown in isolation, then extract
+ * and insert the resulting nodes at the current selection.
  *
  * @param markdownString - The markdown text to parse and insert
  * @param transformers - Optional custom transformers (defaults to TRANSFORMERS)
@@ -50,78 +54,151 @@ export function $insertMarkdownAtSelection(
     return;
   }
 
-  // Strategy: The markdown parser replaces root content, and extracting
-  // then re-inserting orphaned nodes causes issues with complex nodes (tables).
-  //
-  // Solution: Use JSON serialization to preserve existing content:
-  // 1. Serialize existing nodes to JSON (detached from tree)
-  // 2. Parse markdown (which properly creates and attaches new nodes)
-  // 3. Keep parsed nodes attached, insert deserialized nodes around them
+  // For simple single-line text without markdown, just insert as text
+  // This handles the common case of pasting plain text efficiently
+  const hasMarkdownSyntax = /[*_`#[\]|>\-+]/.test(markdownString);
+  const isMultiLine = markdownString.includes('\n');
 
-  // Get insertion position info
-  const anchorNode = selection.anchor.getNode();
-  const anchorTopLevelElement = anchorNode.getTopLevelElementOrThrow();
-  const insertionIndex = anchorTopLevelElement.getIndexWithinParent();
-
-  // Serialize existing content to JSON (safe copies, not references)
-  const allChildren = root.getChildren();
-  const nodesBefore: SerializedLexicalNode[] = [];
-  const nodesAfter: SerializedLexicalNode[] = [];
-  let nodeAtInsertion: SerializedLexicalNode | null = null;
-
-  for (let i = 0; i < allChildren.length; i++) {
-    const serialized = allChildren[i].exportJSON();
-    if (i < insertionIndex) {
-      nodesBefore.push(serialized);
-    } else if (i === insertionIndex) {
-      // Keep the node at insertion if it has content
-      const hasContent = allChildren[i].getTextContent().trim().length > 0;
-      if (hasContent) {
-        nodeAtInsertion = serialized;
-      }
-    } else {
-      nodesAfter.push(serialized);
-    }
+  if (!hasMarkdownSyntax && !isMultiLine) {
+    // Simple text insertion - just insert at selection
+    selection.insertText(markdownString);
+    return;
   }
 
-  // Parse the markdown - this replaces root content with properly attached nodes
+  // For multi-line plain text without markdown, split into paragraphs
+  if (!hasMarkdownSyntax && isMultiLine) {
+    const lines = markdownString.split('\n');
+    const nodes: LexicalNode[] = [];
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (i === 0) {
+        // First line: insert as text at current position
+        selection.insertText(line);
+      } else {
+        // Subsequent lines: create new paragraphs
+        const paragraph = $createParagraphNode();
+        if (line.length > 0) {
+          paragraph.append($createTextNode(line));
+        }
+        nodes.push(paragraph);
+      }
+    }
+
+    if (nodes.length > 0) {
+      $insertNodes(nodes);
+    }
+    return;
+  }
+
+  // For markdown content with existing editor content:
+  // We need to parse markdown without losing existing content.
+  //
+  // Strategy: Detach existing nodes, parse markdown, then reattach
+  // in order: existing nodes before selection, parsed nodes, existing nodes after.
+
+  // Find the top-level block element containing the selection
+  const anchorNode = selection.anchor.getNode();
+  let currentBlock: LexicalNode | null = anchorNode;
+
+  // Walk up to find the direct child of root (top-level block)
+  while (currentBlock !== null) {
+    const parent: LexicalNode | null = currentBlock.getParent();
+    if (parent === null || parent === root) {
+      break;
+    }
+    currentBlock = parent;
+  }
+
+  if (!currentBlock || !$isElementNode(currentBlock)) {
+    // Fallback: just replace everything
+    $convertFromMarkdownString(markdownString, transformers);
+    return;
+  }
+
+  // Get all root children and find current block index
+  const rootChildren = root.getChildren();
+  const currentBlockIndex = rootChildren.indexOf(currentBlock);
+
+  if (currentBlockIndex === -1) {
+    // Block not found in root, fallback
+    $convertFromMarkdownString(markdownString, transformers);
+    return;
+  }
+
+  // Detach all existing nodes (keeping references to them)
+  // Nodes before and including selection block
+  const nodesBefore: LexicalNode[] = [];
+  for (let i = 0; i <= currentBlockIndex; i++) {
+    const node = rootChildren[i];
+    node.remove();
+    nodesBefore.push(node);
+  }
+
+  // Nodes after selection block
+  const nodesAfter: LexicalNode[] = [];
+  for (let i = currentBlockIndex + 1; i < rootChildren.length; i++) {
+    const node = rootChildren[i];
+    node.remove();
+    nodesAfter.push(node);
+  }
+
+  // Now root is empty - parse markdown
   $convertFromMarkdownString(markdownString, transformers);
 
-  // The parsed nodes are now properly attached to root.
-  // We need to insert the serialized (original) nodes around them.
-  // IMPORTANT: We do NOT call root.clear() - that would orphan the parsed nodes!
+  // Get the parsed nodes (keep them attached for now, we'll move them)
+  const parsedNodes = root.getChildren().slice(); // copy the array
 
-  // Get references to first and last parsed nodes for insertion points
-  const firstParsed = root.getFirstChild();
-  const lastParsed = root.getLastChild();
-
-  // Insert nodes BEFORE the first parsed node (in reverse order to maintain order)
-  if (firstParsed) {
-    // First, insert nodeAtInsertion if it exists
-    if (nodeAtInsertion) {
-      const node = $parseSerializedNode(nodeAtInsertion);
-      firstParsed.insertBefore(node);
-    }
-    // Then, insert nodesBefore in reverse order
-    for (let i = nodesBefore.length - 1; i >= 0; i--) {
-      const node = $parseSerializedNode(nodesBefore[i]);
-      firstParsed.insertBefore(node);
-    }
+  // Detach parsed nodes
+  for (const node of parsedNodes) {
+    node.remove();
   }
 
-  // Insert nodes AFTER the last parsed node (in order)
-  if (lastParsed) {
-    let insertAfterNode = lastParsed;
-    for (const serialized of nodesAfter) {
-      const node = $parseSerializedNode(serialized);
-      insertAfterNode.insertAfter(node);
-      insertAfterNode = node;
-    }
+  // Now root is empty again - rebuild in correct order
+  // 1. Add nodes before selection
+  for (const node of nodesBefore) {
+    root.append(node);
   }
 
-  // Select end of last parsed node
-  if (lastParsed && lastParsed.selectEnd) {
-    lastParsed.selectEnd();
+  // 2. Add parsed markdown nodes
+  for (const node of parsedNodes) {
+    root.append(node);
+  }
+
+  // 3. Add nodes after selection
+  for (const node of nodesAfter) {
+    root.append(node);
+  }
+
+  // 4. Set cursor at end of pasted content
+  // Find the last parsed node and position cursor at its end
+  if (parsedNodes.length > 0) {
+    const lastParsedNode = parsedNodes[parsedNodes.length - 1];
+    const newSelection = $createRangeSelection();
+
+    // For element nodes, select at end of element
+    if ($isElementNode(lastParsedNode)) {
+      const lastChild = lastParsedNode.getLastDescendant();
+      if (lastChild) {
+        const key = lastChild.getKey();
+        const offset = lastChild.getTextContentSize();
+        newSelection.anchor.set(key, offset, 'text');
+        newSelection.focus.set(key, offset, 'text');
+      } else {
+        // Empty element - select at element level
+        const key = lastParsedNode.getKey();
+        newSelection.anchor.set(key, 0, 'element');
+        newSelection.focus.set(key, 0, 'element');
+      }
+    } else {
+      // Text node
+      const key = lastParsedNode.getKey();
+      const offset = lastParsedNode.getTextContentSize();
+      newSelection.anchor.set(key, offset, 'text');
+      newSelection.focus.set(key, offset, 'text');
+    }
+
+    $setSelection(newSelection);
   }
 }
 

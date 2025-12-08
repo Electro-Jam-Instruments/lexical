@@ -12,7 +12,7 @@ import {isMimeType, mediaFileReader} from '@lexical/utils';
 import {COMMAND_PRIORITY_LOW} from 'lexical';
 import {useEffect} from 'react';
 
-import {INSERT_IMAGE_COMMAND} from '../ImagesPlugin';
+import {INSERT_IMAGE_COMMAND} from './ImagesPlugin';
 
 const ACCEPTABLE_IMAGE_TYPES = [
   'image/',
@@ -22,7 +22,16 @@ const ACCEPTABLE_IMAGE_TYPES = [
   'image/webp',
 ];
 
-export default function DragDropPaste(): null {
+export interface DragDropPastePluginProps {
+  /**
+   * Default maxWidth for pasted images (default: 150 for thumbnail size)
+   */
+  defaultMaxWidth?: number;
+}
+
+export default function DragDropPastePlugin({
+  defaultMaxWidth = 150,
+}: DragDropPastePluginProps = {}): null {
   const [editor] = useLexicalComposerContext();
   useEffect(() => {
     return editor.registerCommand(
@@ -37,8 +46,8 @@ export default function DragDropPaste(): null {
             if (isMimeType(file, ACCEPTABLE_IMAGE_TYPES)) {
               editor.dispatchCommand(INSERT_IMAGE_COMMAND, {
                 altText: file.name,
-                maxWidth: 150,
-                src: result, // Thumbnail size for pasted images
+                maxWidth: defaultMaxWidth,
+                src: result,
               });
             }
           }
@@ -47,6 +56,6 @@ export default function DragDropPaste(): null {
       },
       COMMAND_PRIORITY_LOW,
     );
-  }, [editor]);
+  }, [editor, defaultMaxWidth]);
   return null;
 }
