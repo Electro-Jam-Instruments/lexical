@@ -6,6 +6,8 @@
  *
  */
 
+import {Transformer} from '@lexical/markdown';
+
 /**
  * Configuration options for the AccessibilityPlugin
  */
@@ -51,6 +53,12 @@ export interface AccessibilityConfig {
  */
 export interface AccessibilityPluginProps {
   config?: AccessibilityConfig;
+  /**
+   * Custom markdown transformers for paste operations.
+   * Defaults to ACCESSIBILITY_TRANSFORMERS which includes HR + standard transformers.
+   * Pass your own array to add app-specific transformers or override defaults.
+   */
+  transformers?: Array<Transformer>;
 }
 
 /**
@@ -72,3 +80,21 @@ export const DEFAULT_CONFIG: Required<AccessibilityConfig> = {
   useCSSFormatting: true,
   verbosity: 'standard',
 };
+
+/**
+ * Update tag to suppress accessibility announcements during bulk operations.
+ *
+ * Use this tag when performing operations that would trigger many announcements
+ * that aren't useful to the user, such as clearing the editor or bulk deletions.
+ *
+ * @example
+ * ```typescript
+ * import { SUPPRESS_A11Y_ANNOUNCEMENTS_TAG } from '@lexical/accessibility';
+ *
+ * // Clear editor without announcing each deleted node
+ * editor.update(() => {
+ *   $getRoot().clear();
+ * }, { tag: SUPPRESS_A11Y_ANNOUNCEMENTS_TAG });
+ * ```
+ */
+export const SUPPRESS_A11Y_ANNOUNCEMENTS_TAG = 'suppress-a11y-announcements';

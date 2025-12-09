@@ -42,7 +42,12 @@ import {
   generateIndentAnnouncement,
 } from './announcementGenerator';
 import {$insertMarkdownAtSelection} from './markdownUtils';
-import {AccessibilityPluginProps, DEFAULT_CONFIG} from './types';
+import {ACCESSIBILITY_TRANSFORMERS} from './transformers';
+import {
+  AccessibilityPluginProps,
+  DEFAULT_CONFIG,
+  SUPPRESS_A11Y_ANNOUNCEMENTS_TAG,
+} from './types';
 import {useAnnounce} from './useAnnouncementQueue';
 import {nodeConfigs, useNodeRegistry} from './useNodeRegistry';
 
@@ -73,6 +78,7 @@ const IS_CODE = 1 << 4; // 16
  */
 export function AccessibilityPlugin({
   config = {},
+  transformers = ACCESSIBILITY_TRANSFORMERS,
 }: AccessibilityPluginProps): JSX.Element {
   const [editor] = useLexicalComposerContext();
 
@@ -474,7 +480,7 @@ export function AccessibilityPlugin({
         if ((!htmlText || !hasRichFormatting(htmlText)) && hasMarkdownSyntax) {
           event.preventDefault();
           editor.update(() => {
-            $insertMarkdownAtSelection(plainText);
+            $insertMarkdownAtSelection(plainText, transformers);
           });
           return true;
         }
@@ -486,7 +492,12 @@ export function AccessibilityPlugin({
     );
 
     const unregisterUpdate = editor.registerUpdateListener(
-      ({editorState, dirtyLeaves}) => {
+      ({editorState, dirtyLeaves, tags}) => {
+        // Skip all announcements if suppress tag is present
+        if (tags.has(SUPPRESS_A11Y_ANNOUNCEMENTS_TAG)) {
+          return;
+        }
+
         // Track code block and inline code enter/exit via update listener
         // SELECTION_CHANGE_COMMAND doesn't fire reliably inside code blocks
         editorState.read(() => {
@@ -676,7 +687,7 @@ export function AccessibilityPlugin({
       unregisterPaste();
       unregisterUpdate();
     };
-  }, [editor, mergedConfig, announce]);
+  }, [editor, mergedConfig, announce, transformers]);
 
   return <AccessibilityLiveRegion announcement={currentAnnouncement} />;
 }

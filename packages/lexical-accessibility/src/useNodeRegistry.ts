@@ -15,13 +15,14 @@ import type {
 import type {LexicalEditor, LexicalNode} from 'lexical';
 import type {MutableRefObject} from 'react';
 
-import {$getNodeByKey} from 'lexical';
+import {$getNodeByKey, $hasUpdateTag} from 'lexical';
 import {useEffect, useRef} from 'react';
 
 import {generateIndentAnnouncement} from './announcementGenerator';
 import {codeBlockConfig} from './codeBlockConfig';
 import {headingConfig} from './headingConfig';
 import {listItemConfig} from './listItemConfig';
+import {SUPPRESS_A11Y_ANNOUNCEMENTS_TAG} from './types';
 
 /**
  * All registered node announcement configurations.
@@ -94,6 +95,12 @@ export function useNodeRegistry({
 
           nodeMetadata.set(key, metadata);
 
+          // Skip creation announcements if suppress tag is present
+          if ($hasUpdateTag(SUPPRESS_A11Y_ANNOUNCEMENTS_TAG)) {
+            announcedCreations.add(key); // Mark as announced to prevent future announcement
+            return;
+          }
+
           if (config.onCreated) {
             const shouldAnnounce = config.shouldAnnounceCreation
               ? config.shouldAnnounceCreation(node, getContext())
@@ -114,7 +121,19 @@ export function useNodeRegistry({
       if (config.onDestroyed) {
         const unregisterMutation = editor.registerMutationListener(
           config.nodeClass,
-          (mutations, {prevEditorState}) => {
+          (mutations, {prevEditorState, updateTags}) => {
+            // Skip announcements if suppress tag is present
+            if (updateTags.has(SUPPRESS_A11Y_ANNOUNCEMENTS_TAG)) {
+              // Still clean up metadata for destroyed nodes
+              mutations.forEach((mutation, key) => {
+                if (mutation === 'destroyed') {
+                  nodeMetadata.delete(key);
+                  announcedCreations.delete(key);
+                }
+              });
+              return;
+            }
+
             const destroyedEntries: Array<{
               key: string;
               metadata: NodeMetadata;

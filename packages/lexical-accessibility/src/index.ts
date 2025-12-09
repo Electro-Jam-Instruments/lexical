@@ -22,7 +22,7 @@ export type {
   AccessibilityPluginProps,
   Announcement,
 } from './types';
-export {DEFAULT_CONFIG} from './types';
+export {DEFAULT_CONFIG, SUPPRESS_A11Y_ANNOUNCEMENTS_TAG} from './types';
 
 // Components (for advanced usage)
 export {AccessibilityLiveRegion} from './AccessibilityLiveRegion';
@@ -55,3 +55,6 @@ export {
   $insertMarkdownAtSelection,
   $replaceWithMarkdown,
 } from './markdownUtils';
+
+// Transformers
+export {ACCESSIBILITY_TRANSFORMERS, HR} from './transformers';

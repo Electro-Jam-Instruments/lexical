@@ -6,11 +6,7 @@
  *
  */
 
-import {
-  $convertFromMarkdownString,
-  type Transformer,
-  TRANSFORMERS,
-} from '@lexical/markdown';
+import {$convertFromMarkdownString, type Transformer} from '@lexical/markdown';
 import {
   $createParagraphNode,
   $createRangeSelection,
@@ -23,6 +19,8 @@ import {
   $setSelection,
   type LexicalNode,
 } from 'lexical';
+
+import {ACCESSIBILITY_TRANSFORMERS} from './transformers';
 
 /**
  * Inserts markdown content at the current selection position.
@@ -43,7 +41,7 @@ import {
  */
 export function $insertMarkdownAtSelection(
   markdownString: string,
-  transformers: Array<Transformer> = TRANSFORMERS,
+  transformers: Array<Transformer> = ACCESSIBILITY_TRANSFORMERS,
 ): void {
   const selection = $getSelection();
   const root = $getRoot();
@@ -218,7 +216,7 @@ export function $insertMarkdownAtSelection(
  */
 export function $replaceWithMarkdown(
   markdownString: string,
-  transformers: Array<Transformer> = TRANSFORMERS,
+  transformers: Array<Transformer> = ACCESSIBILITY_TRANSFORMERS,
 ): void {
   $convertFromMarkdownString(markdownString, transformers);
 }
