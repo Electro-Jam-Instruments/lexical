@@ -13,8 +13,38 @@ This plugin provides screen reader announcements for editor operations, making L
 
 ## Installation
 
+### From npm (when published)
+
 ```bash
 npm install @lexical/accessibility
+```
+
+### From GitHub Fork (Electro Jam Instruments)
+
+To install the custom accessibility package from our GitHub fork:
+
+**Step 1:** Update your `package.json` dependencies:
+
+```json
+{
+  "dependencies": {
+    "@lexical/accessibility": "github:Electro-Jam-Instruments/lexical#main"
+  }
+}
+```
+
+**Step 2:** Force install to fetch from GitHub:
+
+```bash
+npm install --force
+```
+
+**Note:** The `--force` flag is required because npm caches GitHub packages. Without it, npm may use a stale cached version instead of fetching the latest from the repository.
+
+**Updating to latest:** When the fork is updated, run:
+
+```bash
+npm install --force
 ```
 
 ## Basic Usage

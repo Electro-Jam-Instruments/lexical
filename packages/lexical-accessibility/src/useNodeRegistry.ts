@@ -15,14 +15,16 @@ import type {
 import type {LexicalEditor, LexicalNode} from 'lexical';
 import type {MutableRefObject} from 'react';
 
-import {$getNodeByKey, $hasUpdateTag} from 'lexical';
+import {$getNodeByKey} from 'lexical';
 import {useEffect, useRef} from 'react';
 
 import {generateIndentAnnouncement} from './announcementGenerator';
 import {codeBlockConfig} from './codeBlockConfig';
 import {headingConfig} from './headingConfig';
+import {horizontalRuleConfig} from './horizontalRuleConfig';
 import {listItemConfig} from './listItemConfig';
-import {SUPPRESS_A11Y_ANNOUNCEMENTS_TAG} from './types';
+import {quoteConfig} from './quoteConfig';
+import {getSuppressingAnnouncements} from './suppressionState';
 
 /**
  * All registered node announcement configurations.
@@ -33,6 +35,8 @@ export const nodeConfigs: NodeAnnouncementConfig<any>[] = [
   listItemConfig,
   headingConfig,
   codeBlockConfig,
+  quoteConfig,
+  horizontalRuleConfig,
 ];
 
 interface UseNodeRegistryOptions {
@@ -95,9 +99,15 @@ export function useNodeRegistry({
 
           nodeMetadata.set(key, metadata);
 
-          // Skip creation announcements if suppress tag is present
-          if ($hasUpdateTag(SUPPRESS_A11Y_ANNOUNCEMENTS_TAG)) {
+          // Skip creation announcements if suppression is active (e.g., during paste)
+          // Use module-level getter because React refs don't work with Lexical's synchronous transforms
+          if (getSuppressingAnnouncements()) {
             announcedCreations.add(key); // Mark as announced to prevent future announcement
+            // Also run shouldAnnounceCreation to update knownContainers (for list tracking)
+            // but don't actually announce anything
+            if (config.shouldAnnounceCreation) {
+              config.shouldAnnounceCreation(node, getContext());
+            }
             return;
           }
 
@@ -121,9 +131,9 @@ export function useNodeRegistry({
       if (config.onDestroyed) {
         const unregisterMutation = editor.registerMutationListener(
           config.nodeClass,
-          (mutations, {prevEditorState, updateTags}) => {
-            // Skip announcements if suppress tag is present
-            if (updateTags.has(SUPPRESS_A11Y_ANNOUNCEMENTS_TAG)) {
+          (mutations, {prevEditorState}) => {
+            // Skip announcements if suppression is active (e.g., during paste)
+            if (getSuppressingAnnouncements()) {
               // Still clean up metadata for destroyed nodes
               mutations.forEach((mutation, key) => {
                 if (mutation === 'destroyed') {

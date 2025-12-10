@@ -7,5 +7,9 @@
  */
 
 'use strict';
+const LexicalRichText =
+  process.env.NODE_ENV !== 'production'
+    ? require('./LexicalRichText.dev.js')
+    : require('./LexicalRichText.prod.js');
 
-module.exports = require('./dist/LexicalRichText.js');
+module.exports = LexicalRichText;

@@ -7,5 +7,9 @@
  */
 
 'use strict';
+const LexicalClipboard =
+  process.env.NODE_ENV !== 'production'
+    ? require('./LexicalClipboard.dev.js')
+    : require('./LexicalClipboard.prod.js');
 
-module.exports = require('./dist/LexicalClipboard.js');
+module.exports = LexicalClipboard;

@@ -7,5 +7,9 @@
  */
 
 'use strict';
+const LexicalOffset =
+  process.env.NODE_ENV !== 'production'
+    ? require('./LexicalOffset.dev.js')
+    : require('./LexicalOffset.prod.js');
 
-module.exports = require('./dist/LexicalOffset.js');
+module.exports = LexicalOffset;

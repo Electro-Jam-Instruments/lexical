@@ -7,5 +7,9 @@
  */
 
 'use strict';
+const LexicalCode =
+  process.env.NODE_ENV !== 'production'
+    ? require('./LexicalCode.dev.js')
+    : require('./LexicalCode.prod.js');
 
-module.exports = require('./dist/LexicalCode.js');
+module.exports = LexicalCode;

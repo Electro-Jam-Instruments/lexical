@@ -42,6 +42,7 @@ import {
   generateIndentAnnouncement,
 } from './announcementGenerator';
 import {$insertMarkdownAtSelection} from './markdownUtils';
+import {setSuppressingAnnouncements} from './suppressionState';
 import {ACCESSIBILITY_TRANSFORMERS} from './transformers';
 import {
   AccessibilityPluginProps,
@@ -479,9 +480,20 @@ export function AccessibilityPlugin({
         // If no HTML or HTML has no rich formatting, AND text has markdown → parse as markdown
         if ((!htmlText || !hasRichFormatting(htmlText)) && hasMarkdownSyntax) {
           event.preventDefault();
-          editor.update(() => {
-            $insertMarkdownAtSelection(plainText, transformers);
-          });
+          // Set module-level suppression flag BEFORE the update so node transforms can check it
+          setSuppressingAnnouncements(true);
+          editor.update(
+            () => {
+              $insertMarkdownAtSelection(plainText, transformers);
+            },
+            {
+              onUpdate: () => {
+                // Clear suppression flag AFTER the update completes
+                setSuppressingAnnouncements(false);
+              },
+              tag: SUPPRESS_A11Y_ANNOUNCEMENTS_TAG,
+            },
+          );
           return true;
         }
 

@@ -41,6 +41,7 @@ export {
 
 // Node configs (for extensibility)
 export {headingConfig} from './headingConfig';
+export {horizontalRuleConfig} from './horizontalRuleConfig';
 export {listItemConfig} from './listItemConfig';
 export type {
   AnnouncementContext,
@@ -48,6 +49,7 @@ export type {
   NodeMetadata,
   Verbosity,
 } from './nodeConfigTypes';
+export {quoteConfig} from './quoteConfig';
 export {nodeConfigs, useNodeRegistry} from './useNodeRegistry';
 
 // Markdown utilities

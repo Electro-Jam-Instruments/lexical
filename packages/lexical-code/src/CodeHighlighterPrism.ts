@@ -237,6 +237,16 @@ function $updateAndRetainSelection(
     return;
   }
 
+  // Check if selection is actually inside this code node
+  // If not, don't try to "retain" selection - just run update and leave selection alone
+  const anchorNode = selection.anchor.getNode();
+  const anchorTopLevelParent = anchorNode.getTopLevelElementOrThrow();
+  if (anchorTopLevelParent.getKey() !== nodeKey) {
+    // Selection is outside this code block - just run transform without touching selection
+    updateFn();
+    return;
+  }
+
   const anchor = selection.anchor;
   const anchorOffset = anchor.offset;
   const isNewLineAnchor =
@@ -246,10 +256,10 @@ function $updateAndRetainSelection(
 
   // Calculating previous text offset (all text node prior to anchor + anchor own text offset)
   if (!isNewLineAnchor) {
-    const anchorNode = anchor.getNode();
+    const anchorTextNode = anchor.getNode();
     textOffset =
       anchorOffset +
-      anchorNode.getPreviousSiblings().reduce((offset, _node) => {
+      anchorTextNode.getPreviousSiblings().reduce((offset, _node) => {
         return offset + _node.getTextContentSize();
       }, 0);
   }

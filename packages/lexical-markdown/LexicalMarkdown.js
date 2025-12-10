@@ -7,5 +7,9 @@
  */
 
 'use strict';
+const LexicalMarkdown =
+  process.env.NODE_ENV !== 'production'
+    ? require('./LexicalMarkdown.dev.js')
+    : require('./LexicalMarkdown.prod.js');
 
-module.exports = require('./dist/LexicalMarkdown.js');
+module.exports = LexicalMarkdown;

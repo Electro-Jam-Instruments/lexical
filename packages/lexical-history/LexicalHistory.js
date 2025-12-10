@@ -7,5 +7,9 @@
  */
 
 'use strict';
+const LexicalHistory =
+  process.env.NODE_ENV !== 'production'
+    ? require('./LexicalHistory.dev.js')
+    : require('./LexicalHistory.prod.js');
 
-module.exports = require('./dist/LexicalHistory.js');
+module.exports = LexicalHistory;
