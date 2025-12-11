@@ -303,6 +303,17 @@ function $runTextFormatTransformers(
       continue;
     }
 
+    // Skip non-code formatting if we're inside an unmatched backtick (potential code span)
+    // This prevents `_word_` from italicizing before the closing backtick is typed
+    if (tag !== '`') {
+      const textBeforeOpen = prevOpenNodeText.slice(0, openTagStartIndex);
+      const backtickCount = (textBeforeOpen.match(/`/g) || []).length;
+      if (backtickCount % 2 === 1) {
+        // Odd number of backticks means we're inside a potential code span
+        continue;
+      }
+    }
+
     // Clean text from opening and closing tags (starting from closing tag
     // to prevent any offset shifts if we start from opening one)
     const prevCloseNodeText = closeNode.getTextContent();
