@@ -1527,7 +1527,7 @@ function $selectAdjacentCell(
 
 type Direction = 'backward' | 'forward' | 'up' | 'down';
 
-const selectTableNodeInDirection = (
+const $selectTableNodeInDirection = (
   tableObserver: TableObserver,
   tableNode: TableNode,
   x: number,
@@ -1574,7 +1574,12 @@ const selectTableNodeInDirection = (
           false,
         );
       } else {
-        tableNode.selectPrevious();
+        const prevSibling = tableNode.getPreviousSibling();
+        if (prevSibling === null) {
+          $insertParagraphAtTableEdge('first', tableNode);
+        } else {
+          tableNode.selectPrevious();
+        }
       }
 
       return true;
@@ -1586,7 +1591,12 @@ const selectTableNodeInDirection = (
           true,
         );
       } else {
-        tableNode.selectNext();
+        const nextSibling = tableNode.getNextSibling();
+        if (nextSibling === null) {
+          $insertParagraphAtTableEdge('last', tableNode);
+        } else {
+          tableNode.selectNext();
+        }
       }
 
       return true;
@@ -2268,7 +2278,7 @@ function $handleArrowKey(
           tableObserver.$setAnchorCellForSelection(cell);
           tableObserver.$setFocusCellForSelection(cell, true);
         } else {
-          return selectTableNodeInDirection(
+          return $selectTableNodeInDirection(
             tableObserver,
             tableNode,
             cords.x,
