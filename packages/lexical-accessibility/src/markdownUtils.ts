@@ -183,7 +183,9 @@ function $applyTextFormatTransformers(
   // Process each text format transformer
   for (const transformer of sortedTransformers) {
     const {tag, format} = transformer;
-    if (!tag || !format) {continue;}
+    if (!tag || !format) {
+      continue;
+    }
 
     // Build regex to match the format pattern
     // Escape special regex chars in tag for use outside character classes
@@ -232,13 +234,17 @@ function $applyTextFormatTransformers(
       const currentText = currentNode.getTextContent();
       const match = currentText.match(regex);
 
-      if (!match) {break;}
+      if (!match) {
+        break;
+      }
 
       const fullMatch = match[0];
       const innerText = fullMatch.slice(tag.length, -tag.length);
       const matchIndex = currentText.indexOf(fullMatch);
 
-      if (matchIndex === -1) {break;}
+      if (matchIndex === -1) {
+        break;
+      }
 
       try {
         // Split the node to isolate the formatted part
@@ -419,12 +425,14 @@ function $applyTextFormatsToElementTransformResults(
 
   for (const child of rootChildren) {
     // Skip paragraphs - they're handled in Phase 2 main loop
-    if ($isParagraphNode(child)) {continue;}
+    if ($isParagraphNode(child)) {
+      continue;
+    }
 
     // Process list nodes
     if ('getListType' in child) {
       // This is a ListNode - process all list items
-      const listItems = child.getChildren();
+      const listItems = (child as unknown as ElementNode).getChildren();
       for (const listItem of listItems) {
         if ($isListItemNode(listItem)) {
           const textNodes = $collectTextNodes(listItem);
@@ -570,8 +578,12 @@ export function $insertMarkdownAtSelection(
   const rootChildren = root.getChildren();
 
   for (const child of rootChildren) {
-    if (!$isParagraphNode(child)) {continue;}
-    if (!createdParagraphKeys.includes(child.getKey())) {continue;}
+    if (!$isParagraphNode(child)) {
+      continue;
+    }
+    if (!createdParagraphKeys.includes(child.getKey())) {
+      continue;
+    }
 
     // First, apply element transformers (headings, lists, quotes, etc.)
     const elementApplied = $applyElementTransformers(child, byType.element);
@@ -626,7 +638,9 @@ export function $insertMarkdownAtSelection(
         // Search from last child backward
         for (let idx = nodeChildren.length - 1; idx >= 0; idx--) {
           const result = findLastTextNode(nodeChildren[idx]);
-          if (result) {return result;}
+          if (result) {
+            return result;
+          }
         }
       }
       return null;
@@ -651,9 +665,9 @@ export function $insertMarkdownAtSelection(
         (lastRootNode as ElementNode).selectEnd();
       } else if (
         'select' in lastRootNode &&
-        typeof lastRootNode.select === 'function'
+        typeof (lastRootNode as {select?: () => void}).select === 'function'
       ) {
-        (lastRootNode as LexicalNode).select();
+        (lastRootNode as {select: () => void}).select();
       } else {
         root.selectEnd();
       }

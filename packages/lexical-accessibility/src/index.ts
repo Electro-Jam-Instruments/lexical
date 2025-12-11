@@ -60,3 +60,22 @@ export {
 
 // Transformers
 export {ACCESSIBILITY_TRANSFORMERS, HR} from './transformers';
+
+// AutoLink plugin and utilities
+export {
+  AccessibilityAutoLinkPlugin,
+  type AccessibilityAutoLinkPluginProps,
+  DEFAULT_LINK_MATCHERS,
+  type LinkMatcher,
+  type LinkMatcherResult,
+} from './AccessibilityAutoLinkPlugin';
+
+// Re-export link nodes from @lexical/link for convenience
+export {
+  $createAutoLinkNode,
+  $createLinkNode,
+  $isAutoLinkNode,
+  $isLinkNode,
+  AutoLinkNode,
+  LinkNode,
+} from '@lexical/link';
