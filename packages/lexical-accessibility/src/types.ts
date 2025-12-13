@@ -6,6 +6,8 @@
  *
  */
 
+import type {NodeAnnouncementConfig} from './nodeConfigTypes';
+
 import {Transformer} from '@lexical/markdown';
 
 /**
@@ -59,6 +61,22 @@ export interface AccessibilityPluginProps {
    * Pass your own array to add app-specific transformers or override defaults.
    */
   transformers?: Array<Transformer>;
+  /**
+   * Additional node announcement configs for custom node types (e.g., EmojiNode).
+   * These are merged with the built-in configs (heading, list, quote, etc.).
+   *
+   * @example
+   * ```tsx
+   * import {createEmojiConfig} from '@lexical/accessibility';
+   * import {EmojiNode} from './nodes/EmojiNode';
+   *
+   * const emojiConfig = createEmojiConfig(EmojiNode);
+   *
+   * <AccessibilityPlugin additionalNodeConfigs={[emojiConfig]} />
+   * ```
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  additionalNodeConfigs?: Array<NodeAnnouncementConfig<any>>;
 }
 
 /**

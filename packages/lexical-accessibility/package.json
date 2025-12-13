@@ -13,7 +13,7 @@
     "voiceover"
   ],
   "license": "MIT",
-  "version": "0.38.5",
+  "version": "0.38.2",
   "main": "LexicalAccessibility.js",
   "types": "index.d.ts",
   "module": "LexicalAccessibility.mjs",

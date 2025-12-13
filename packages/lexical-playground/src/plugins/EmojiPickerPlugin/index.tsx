@@ -10,7 +10,6 @@ import {useLexicalComposerContext} from '@lexical/react/LexicalComposerContext';
 import {
   LexicalTypeaheadMenuPlugin,
   MenuOption,
-  useBasicTypeaheadTriggerMatch,
 } from '@lexical/react/LexicalTypeaheadMenuPlugin';
 import {
   $createTextNode,
@@ -88,6 +87,25 @@ type Emoji = {
 
 const MAX_EMOJI_SUGGESTION_COUNT = 10;
 
+// Custom trigger function that requires exactly "::" (two consecutive colons)
+// This avoids triggering on patterns like "list:" followed by ":" on another line
+function useDoubleColonTriggerMatch() {
+  return useCallback((text: string) => {
+    // Look for :: followed by valid identifier characters at the end
+    const match = /(?:^|\s|[([{])(::[a-zA-Z0-9_-]*)$/.exec(text);
+    if (match !== null) {
+      const fullMatch = match[1]; // e.g., "::smile" or "::"
+      const queryString = fullMatch.slice(2); // remove the "::" prefix
+      return {
+        leadOffset: match.index + (match[0].length - fullMatch.length),
+        matchingString: queryString,
+        replaceableString: fullMatch,
+      };
+    }
+    return null;
+  }, []);
+}
+
 export default function EmojiPickerPlugin() {
   const [editor] = useLexicalComposerContext();
   const [queryString, setQueryString] = useState<string | null>(null);
@@ -110,10 +128,7 @@ export default function EmojiPickerPlugin() {
     [emojis],
   );
 
-  const checkForTriggerMatch = useBasicTypeaheadTriggerMatch(':', {
-    minLength: 0,
-    punctuation: '\\.,\\+\\*\\?\\$\\@\\|#{}\\(\\)\\^\\[\\]\\\\/!%\'"~=<>:;', // allow _ and -
-  });
+  const checkForTriggerMatch = useDoubleColonTriggerMatch();
 
   const options: Array<EmojiOption> = useMemo(() => {
     return emojiOptions

@@ -8,7 +8,7 @@
 
 import type {JSX} from 'react';
 
-import {AccessibilityPlugin} from '@lexical/accessibility';
+import {AccessibilityPlugin, createEmojiConfig} from '@lexical/accessibility';
 import {AutoFocusPlugin} from '@lexical/react/LexicalAutoFocusPlugin';
 import {CharacterLimitPlugin} from '@lexical/react/LexicalCharacterLimitPlugin';
 import {CheckListPlugin} from '@lexical/react/LexicalCheckListPlugin';
@@ -40,6 +40,7 @@ import {
 } from './collaboration';
 import {useSettings} from './context/SettingsContext';
 import {useSharedHistoryContext} from './context/SharedHistoryContext';
+import {EmojiNode} from './nodes/EmojiNode';
 import ActionsPlugin from './plugins/ActionsPlugin';
 import AutocompletePlugin from './plugins/AutocompletePlugin';
 import AutoEmbedPlugin from './plugins/AutoEmbedPlugin';
@@ -86,6 +87,12 @@ import YouTubePlugin from './plugins/YouTubePlugin';
 import ContentEditable from './ui/ContentEditable';
 
 const COLLAB_DOC_ID = 'main';
+
+// Create emoji accessibility config for screen reader announcements
+// IMPORTANT: Both the config AND the array must be stable references to prevent
+// useEffect in useNodeRegistry from re-running and clearing announcedCreations
+const emojiConfig = createEmojiConfig(EmojiNode);
+const additionalNodeConfigs = [emojiConfig];
 
 const skipCollaborationInit =
   // @ts-expect-error
@@ -178,7 +185,7 @@ export default function Editor(): JSX.Element {
         {isMaxLength && <MaxLengthPlugin maxLength={30} />}
         <DragDropPaste />
         <AutoFocusPlugin />
-        <AccessibilityPlugin />
+        <AccessibilityPlugin additionalNodeConfigs={additionalNodeConfigs} />
         {selectionAlwaysOnDisplay && <SelectionAlwaysOnDisplay />}
         <ClearEditorPlugin />
         <ComponentPickerPlugin />

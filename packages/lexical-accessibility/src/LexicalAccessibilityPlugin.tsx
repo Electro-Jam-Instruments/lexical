@@ -11,9 +11,12 @@ import type {JSX} from 'react';
 import {$isCodeNode} from '@lexical/code';
 import {$isListItemNode} from '@lexical/list';
 import {useLexicalComposerContext} from '@lexical/react/LexicalComposerContext';
+import {$isHorizontalRuleNode} from '@lexical/react/LexicalHorizontalRuleNode';
 import {
   $getNodeByKey,
+  $getRoot,
   $getSelection,
+  $isNodeSelection,
   $isRangeSelection,
   $isTextNode,
   COMMAND_PRIORITY_CRITICAL,
@@ -22,12 +25,12 @@ import {
   INDENT_CONTENT_COMMAND,
   INSERT_PARAGRAPH_COMMAND,
   KEY_BACKSPACE_COMMAND,
+  KEY_DELETE_COMMAND,
   KEY_ENTER_COMMAND,
   KEY_TAB_COMMAND,
   LexicalNode,
   OUTDENT_CONTENT_COMMAND,
   PASTE_COMMAND,
-  SELECTION_CHANGE_COMMAND,
   TextNode,
 } from 'lexical';
 import {useEffect, useMemo, useRef} from 'react';
@@ -41,6 +44,7 @@ import {
   generateFormatAnnouncement,
   generateIndentAnnouncement,
 } from './announcementGenerator';
+import {setIsDeleteKeyOperation} from './deleteKeyState';
 import {$insertMarkdownAtSelection} from './markdownUtils';
 import {setSuppressingAnnouncements} from './suppressionState';
 import {ACCESSIBILITY_TRANSFORMERS} from './transformers';
@@ -80,12 +84,19 @@ const IS_CODE = 1 << 4; // 16
 export function AccessibilityPlugin({
   config = {},
   transformers = ACCESSIBILITY_TRANSFORMERS,
+  additionalNodeConfigs = [],
 }: AccessibilityPluginProps): JSX.Element {
   const [editor] = useLexicalComposerContext();
 
   const mergedConfig = useMemo(
     () => ({...DEFAULT_CONFIG, ...config}),
     [config],
+  );
+
+  // Combine built-in node configs with any additional configs (e.g., EmojiNode)
+  const allNodeConfigs = useMemo(
+    () => [...nodeConfigs, ...additionalNodeConfigs],
+    [additionalNodeConfigs],
   );
 
   const {currentAnnouncement, announce} = useAnnounce();
@@ -95,10 +106,12 @@ export function AccessibilityPlugin({
   const isEnterOnEmptyRef = useRef(false);
   const wasInCodeBlockRef = useRef(false);
   const wasInInlineCodeRef = useRef(false);
+  const wasOnHorizontalRuleRef = useRef(false);
+  const previousBlockKeyRef = useRef<string | null>(null);
 
   useNodeRegistry({
     announce,
-    configs: mergedConfig.announceStructural ? nodeConfigs : [],
+    configs: mergedConfig.announceStructural ? allNodeConfigs : [],
     editor,
     enabled: mergedConfig.enabled,
     isEnterOnEmptyRef,
@@ -247,6 +260,22 @@ export function AccessibilityPlugin({
       COMMAND_PRIORITY_LOW,
     );
 
+    // Track DELETE key presses so emoji deletion can differentiate
+    // DELETE key needs our announcement (screen reader says "blank")
+    // Backspace doesn't need it (screen reader announces the character)
+    const unregisterDelete = editor.registerCommand(
+      KEY_DELETE_COMMAND,
+      () => {
+        setIsDeleteKeyOperation(true);
+        // Clear the flag after mutation listeners have fired
+        setTimeout(() => {
+          setIsDeleteKeyOperation(false);
+        }, 50);
+        return false;
+      },
+      COMMAND_PRIORITY_LOW,
+    );
+
     const unregisterEnter = editor.registerCommand(
       KEY_ENTER_COMMAND,
       () => {
@@ -329,6 +358,10 @@ export function AccessibilityPlugin({
       () => false,
       COMMAND_PRIORITY_LOW,
     );
+
+    // Note: Up/Down arrow navigation to decorator nodes (like HR) is handled
+    // by the core lexical-rich-text plugin, which now creates a NodeSelection
+    // on the decorator node. This triggers the HR announcement in the update listener.
 
     const unregisterIndent = editor.registerCommand(
       INDENT_CONTENT_COMMAND,
@@ -416,17 +449,6 @@ export function AccessibilityPlugin({
         return false;
       },
       COMMAND_PRIORITY_HIGH,
-    );
-
-    // SELECTION_CHANGE_COMMAND - not used for code block tracking
-    // because it doesn't fire reliably inside code blocks
-    // Keeping registration but empty - code block tracking is in update listener
-    const unregisterSelectionChange = editor.registerCommand(
-      SELECTION_CHANGE_COMMAND,
-      () => {
-        return false;
-      },
-      COMMAND_PRIORITY_LOW,
     );
 
     // Smart Paste as Markdown
@@ -557,6 +579,97 @@ export function AccessibilityPlugin({
               // Reset inline code state when inside code block
               wasInInlineCodeRef.current = false;
             }
+
+            // HR navigation detection - uses editorState.read() which guarantees
+            // we're reading the exact state that triggered this update
+            const selection = $getSelection();
+            let isOnHorizontalRule = false;
+            let currentBlockKey: string | null = null;
+            const root = $getRoot();
+
+            if ($isNodeSelection(selection)) {
+              const nodes = selection.getNodes();
+              if (nodes.length === 1) {
+                const node = nodes[0];
+                if ($isHorizontalRuleNode(node)) {
+                  isOnHorizontalRule = true;
+                  currentBlockKey = node.getKey();
+                }
+              }
+            } else if ($isRangeSelection(selection)) {
+              // Get the current top-level block for range selections
+              const anchorNode = selection.anchor.getNode();
+
+              let topLevelNode: LexicalNode | null = anchorNode;
+              while (topLevelNode !== null) {
+                const parent: LexicalNode | null = topLevelNode.getParent();
+                if (parent !== null && root.is(parent)) {
+                  break;
+                }
+                topLevelNode = parent;
+              }
+              if (topLevelNode !== null) {
+                currentBlockKey = topLevelNode.getKey();
+              }
+            }
+
+            const wasOnHorizontalRule = wasOnHorizontalRuleRef.current;
+            const previousBlockKey = previousBlockKeyRef.current;
+
+            // Announce when navigating TO a horizontal rule
+            if (!wasOnHorizontalRule && isOnHorizontalRule) {
+              if (mergedConfig.verbosity === 'verbose') {
+                announce('On horizontal rule separator');
+              } else if (mergedConfig.verbosity === 'standard') {
+                announce('Horizontal rule');
+              } else {
+                announce('Rule');
+              }
+            }
+
+            // Check if we jumped OVER an HR when navigating between blocks
+            if (
+              !isOnHorizontalRule &&
+              previousBlockKey !== null &&
+              currentBlockKey !== null &&
+              previousBlockKey !== currentBlockKey
+            ) {
+              // Use root children array to find HR between the two blocks
+              // This is more reliable than sibling traversal
+              const children = root.getChildren();
+              const prevIndex = children.findIndex(
+                (c) => c.getKey() === previousBlockKey,
+              );
+              const currIndex = children.findIndex(
+                (c) => c.getKey() === currentBlockKey,
+              );
+
+              if (prevIndex !== -1 && currIndex !== -1) {
+                const startIdx = Math.min(prevIndex, currIndex);
+                const endIdx = Math.max(prevIndex, currIndex);
+
+                let foundHR = false;
+                for (let i = startIdx + 1; i < endIdx; i++) {
+                  if (children[i].getType() === 'horizontalrule') {
+                    foundHR = true;
+                    break;
+                  }
+                }
+
+                if (foundHR) {
+                  if (mergedConfig.verbosity === 'verbose') {
+                    announce('Passed horizontal rule separator');
+                  } else if (mergedConfig.verbosity === 'standard') {
+                    announce('Passed horizontal rule');
+                  } else {
+                    announce('Passed rule');
+                  }
+                }
+              }
+            }
+
+            wasOnHorizontalRuleRef.current = isOnHorizontalRule;
+            previousBlockKeyRef.current = currentBlockKey;
           }
         });
 
@@ -690,12 +803,12 @@ export function AccessibilityPlugin({
 
     return () => {
       unregisterBackspace();
+      unregisterDelete();
       unregisterEnter();
       unregisterTab();
       unregisterIndent();
       unregisterOutdent();
       unregisterInsertParagraph();
-      unregisterSelectionChange();
       unregisterPaste();
       unregisterUpdate();
     };

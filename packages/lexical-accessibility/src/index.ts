@@ -52,6 +52,16 @@ export type {
 export {quoteConfig} from './quoteConfig';
 export {nodeConfigs, useNodeRegistry} from './useNodeRegistry';
 
+// Emoji accessibility
+export {
+  generateEmojiCreationAnnouncement,
+  generateEmojiDeletionAnnouncement,
+  getEmojiName,
+  registerEmojiName,
+} from './emojiAnnouncementGenerator';
+export type {EmojiMetadata, EmojiNodeLike} from './emojiConfig';
+export {createEmojiConfig} from './emojiConfig';
+
 // Markdown utilities
 export {
   $insertMarkdownAtSelection,

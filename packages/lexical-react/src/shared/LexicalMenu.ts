@@ -132,7 +132,9 @@ function $splitNodeContainingQuery(match: MenuTextMatch): TextNode | null {
     return null;
   }
   const anchorNode = anchor.getNode();
-  if (!anchorNode.isSimpleText()) {
+  // Allow simple text nodes and accessible-text nodes (used for CSS-based formatting)
+  const isAccessibleText = anchorNode.getType() === 'accessible-text';
+  if (!anchorNode.isSimpleText() && !isAccessibleText) {
     return null;
   }
   const selectionOffset = anchor.offset;

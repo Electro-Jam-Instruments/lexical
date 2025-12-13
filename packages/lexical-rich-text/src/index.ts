@@ -46,6 +46,7 @@ import {
 } from '@lexical/utils';
 import {
   $applyNodeReplacement,
+  $createNodeSelection,
   $createParagraphNode,
   $createRangeSelection,
   $createTabNode,
@@ -793,7 +794,10 @@ export function registerRichText(editor: LexicalEditor): () => void {
             !possibleNode.isIsolated() &&
             !possibleNode.isInline()
           ) {
-            possibleNode.selectPrevious();
+            // Select the decorator node itself (for accessibility - allows screen readers to announce it)
+            const nodeSelection = $createNodeSelection();
+            nodeSelection.add(possibleNode.getKey());
+            $setSelection(nodeSelection);
             event.preventDefault();
             return true;
           }
@@ -827,7 +831,10 @@ export function registerRichText(editor: LexicalEditor): () => void {
             !possibleNode.isIsolated() &&
             !possibleNode.isInline()
           ) {
-            possibleNode.selectNext();
+            // Select the decorator node itself (for accessibility - allows screen readers to announce it)
+            const nodeSelection = $createNodeSelection();
+            nodeSelection.add(possibleNode.getKey());
+            $setSelection(nodeSelection);
             event.preventDefault();
             return true;
           }

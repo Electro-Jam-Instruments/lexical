@@ -42,7 +42,9 @@ function getTextUpToAnchor(selection: RangeSelection): string | null {
     return null;
   }
   const anchorNode = anchor.getNode();
-  if (!anchorNode.isSimpleText()) {
+  // Allow simple text nodes and accessible-text nodes (used for CSS-based formatting)
+  const isAccessibleText = anchorNode.getType() === 'accessible-text';
+  if (!anchorNode.isSimpleText() && !isAccessibleText) {
     return null;
   }
   const anchorOffset = anchor.offset;
