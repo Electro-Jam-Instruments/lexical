@@ -52,7 +52,28 @@ export type {
 export {quoteConfig} from './quoteConfig';
 export {nodeConfigs, useNodeRegistry} from './useNodeRegistry';
 
-// Emoji accessibility
+// Emoji Node and Plugins
+export type {SerializedEmojiNode} from './EmojiNode';
+export {$createEmojiNode, $isEmojiNode, EmojiNode} from './EmojiNode';
+export {
+  type Emoji,
+  EmojiMenuItem,
+  type EmojiMenuItemProps,
+  EmojiOption,
+  EmojiPickerPlugin,
+  type EmojiPickerPluginProps,
+  useDoubleColonTriggerMatch,
+} from './EmojiPickerPlugin';
+export {
+  DEFAULT_EMOJI_PATTERNS,
+  EmojisPlugin,
+  type EmojisPluginProps,
+} from './EmojisPlugin';
+// Built-in emoji list (top 100 common emojis)
+// For full list (~1800), copy from: lexical-playground/src/utils/emoji-list.ts
+export {default as emojiList} from './emoji-list';
+
+// Emoji accessibility announcements
 export {
   generateEmojiCreationAnnouncement,
   generateEmojiDeletionAnnouncement,
@@ -63,6 +84,7 @@ export type {EmojiMetadata, EmojiNodeLike} from './emojiConfig';
 export {createEmojiConfig} from './emojiConfig';
 
 // Markdown utilities
+export type {InsertMarkdownOptions} from './markdownUtils';
 export {
   $insertMarkdownAtSelection,
   $replaceWithMarkdown,

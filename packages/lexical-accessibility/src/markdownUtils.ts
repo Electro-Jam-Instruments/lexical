@@ -23,6 +23,7 @@ import {
 import {$isHeadingNode, $isQuoteNode} from '@lexical/rich-text';
 import {
   $createTextNode,
+  $getNodeByKey,
   $getRoot,
   $getSelection,
   $isParagraphNode,
@@ -34,6 +35,22 @@ import {
 } from 'lexical';
 
 import {ACCESSIBILITY_TRANSFORMERS} from './transformers';
+
+/**
+ * Options for $insertMarkdownAtSelection.
+ */
+export interface InsertMarkdownOptions {
+  /**
+   * When true, preserves the current selection/cursor position instead of
+   * moving the cursor to the end of inserted content.
+   *
+   * Use this when inserting content into a non-focused/background editor
+   * to prevent focus from shifting to that editor.
+   *
+   * @default false
+   */
+  preserveSelection?: boolean;
+}
 
 /**
  * HR transformer for paste operations - does NOT call selectNext().
@@ -303,7 +320,10 @@ function $applyCodeBlockTransforms(
   root: ElementNode,
   createdParagraphKeys: string[],
 ): void {
-  const CODE_FENCE_REGEX = /^```(\w*)\s*$/;
+  // Match opening fence: ``` optionally followed by language identifier
+  // The language can contain letters, numbers, +, -, # (for c++, c#, f#, etc.)
+  const CODE_FENCE_REGEX = /^```([\w+#-]*)\s*$/;
+  // Match closing fence: exactly ``` with optional trailing whitespace
   const CODE_FENCE_END_REGEX = /^```\s*$/;
 
   let i = 0;
@@ -341,6 +361,12 @@ function $applyCodeBlockTransforms(
         continue;
       }
 
+      // Check if this paragraph is also in our created list
+      // If not, we've gone past our pasted content
+      if (!createdParagraphKeys.includes(nextChild.getKey())) {
+        break;
+      }
+
       const nextText = nextChild.getTextContent().replace(/\r$/, '');
       const endMatch = nextText.match(CODE_FENCE_END_REGEX);
 
@@ -364,27 +390,34 @@ function $applyCodeBlockTransforms(
     }
 
     // Create code block node
-    const codeBlockNode = $createCodeNode(language);
-    const codeContent = codeLines.join('\n');
-    if (codeContent.length > 0) {
-      const codeTextNode = $createTextNode(codeContent);
-      codeBlockNode.append(codeTextNode);
-    }
-
-    // Insert code block before the first removed node
-    const firstNode = nodesToRemove[0];
-    firstNode.insertBefore(codeBlockNode);
-
-    // Remove all the original paragraph nodes
-    for (const node of nodesToRemove) {
-      if (node.isAttached()) {
-        // Remove from createdParagraphKeys so Phase 2 doesn't try to process
-        const idx = createdParagraphKeys.indexOf(node.getKey());
-        if (idx !== -1) {
-          createdParagraphKeys.splice(idx, 1);
-        }
-        node.remove();
+    try {
+      const codeBlockNode = $createCodeNode(language);
+      const codeContent = codeLines.join('\n');
+      if (codeContent.length > 0) {
+        const codeTextNode = $createTextNode(codeContent);
+        codeBlockNode.append(codeTextNode);
       }
+
+      // Insert code block before the first removed node
+      const firstNode = nodesToRemove[0];
+      firstNode.insertBefore(codeBlockNode);
+
+      // Remove all the original paragraph nodes
+      for (const node of nodesToRemove) {
+        if (node.isAttached()) {
+          // Remove from createdParagraphKeys so Phase 2 doesn't try to process
+          const idx = createdParagraphKeys.indexOf(node.getKey());
+          if (idx !== -1) {
+            createdParagraphKeys.splice(idx, 1);
+          }
+          node.remove();
+        }
+      }
+    } catch (_e) {
+      // CodeNode might not be registered - skip this code block transformation
+      // and let the raw backticks remain as text
+      i++;
+      continue;
     }
 
     // Don't increment i, the next node is now at position i
@@ -478,20 +511,46 @@ function $applyTextFormatsToElementTransformResults(
  *
  * @param markdownString - The markdown text to parse and insert
  * @param transformers - Optional custom transformers (defaults to ACCESSIBILITY_TRANSFORMERS)
+ * @param options - Optional settings for insertion behavior
  *
  * @example
  * ```typescript
+ * // Normal paste - cursor moves to end of inserted content
  * editor.update(() => {
  *   $insertMarkdownAtSelection('**bold text** and *italic*');
  * });
+ *
+ * // Background insert - cursor stays where it was
+ * editor.update(() => {
+ *   $insertMarkdownAtSelection('# Heading\n\nContent', ACCESSIBILITY_TRANSFORMERS, {
+ *     preserveSelection: true,
+ *   });
+ * }, { tag: SUPPRESS_A11Y_ANNOUNCEMENTS_TAG });
  * ```
  */
 export function $insertMarkdownAtSelection(
   markdownString: string,
   transformers: Array<Transformer> = ACCESSIBILITY_TRANSFORMERS,
+  options: InsertMarkdownOptions = {},
 ): void {
+  const {preserveSelection = false} = options;
+
   const selection = $getSelection();
   const root = $getRoot();
+
+  // Capture original selection state for preservation mode
+  // We need the node key and offset to restore position after insertion
+  let originalAnchorKey: string | null = null;
+  let originalAnchorOffset = 0;
+  let originalFocusKey: string | null = null;
+  let originalFocusOffset = 0;
+
+  if (preserveSelection && $isRangeSelection(selection)) {
+    originalAnchorKey = selection.anchor.key;
+    originalAnchorOffset = selection.anchor.offset;
+    originalFocusKey = selection.focus.key;
+    originalFocusOffset = selection.focus.offset;
+  }
 
   // If no selection or root is empty, just replace everything
   if (!$isRangeSelection(selection) || root.isEmpty()) {
@@ -505,6 +564,16 @@ export function $insertMarkdownAtSelection(
 
   if (!hasMarkdownSyntax && !isMultiLine) {
     selection.insertText(markdownString);
+    // If preserving selection, restore the original position
+    if (preserveSelection && originalAnchorKey) {
+      const anchorNode = $getNodeByKey(originalAnchorKey);
+      if (anchorNode && $isTextNode(anchorNode) && anchorNode.isAttached()) {
+        const textLen = anchorNode.getTextContent().length;
+        // Clamp offset to valid range (text may have changed)
+        const safeOffset = Math.min(originalAnchorOffset, textLen);
+        anchorNode.select(safeOffset, safeOffset);
+      }
+    }
     return;
   }
 
@@ -525,7 +594,11 @@ export function $insertMarkdownAtSelection(
 
   // PHASE 1: Insert raw text using clipboard pattern
   // This preserves cursor position correctly
-  const lines = markdownString.split('\n');
+  // Normalize line endings (handle Windows CRLF and old Mac CR)
+  const normalizedMarkdown = markdownString
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n');
+  const lines = normalizedMarkdown.split('\n');
   const createdParagraphKeys: string[] = [];
 
   for (let i = 0; i < lines.length; i++) {
@@ -607,8 +680,29 @@ export function $insertMarkdownAtSelection(
   // This handles bold/italic inside lists, headings, and quotes
   $applyTextFormatsToElementTransformResults(root, byType.textFormat);
 
-  // PHASE 3: Restore cursor position
-  // ALWAYS restore cursor to the ACTUAL end of pasted content.
+  // PHASE 3: Cursor position handling
+  // When preserveSelection is true, we skip moving the cursor entirely.
+  // This prevents focus from shifting to a background/hidden editor.
+  if (preserveSelection) {
+    // Skip cursor restoration - leave selection as-is after content insertion.
+    // The content has been added but we don't call select() which would
+    // trigger focus events and potentially steal focus from another editor.
+    //
+    // Note: The original selection captured at the start is no longer valid
+    // because insertion has modified the document structure. We simply
+    // don't update the selection at all, which is the safest approach.
+
+    // Suppress unused variable warnings for tracking vars used in debugging
+    void startParagraphKey;
+    void startingRootIndex;
+    void originalAnchorKey;
+    void originalAnchorOffset;
+    void originalFocusKey;
+    void originalFocusOffset;
+    return;
+  }
+
+  // Normal mode: restore cursor to the ACTUAL end of pasted content.
   //
   // Key insight: selectEnd() on element nodes doesn't always work as expected.
   // We need to find the deepest last text node and position cursor at its end.
