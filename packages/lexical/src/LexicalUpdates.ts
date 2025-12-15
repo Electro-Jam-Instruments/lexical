@@ -631,12 +631,18 @@ export function $commitPendingUpdates(
   // EXCEPTION: When FOCUS_TAG is present (from editor.focus()), we MUST allow
   // updateDOMSelection to run even if the editor doesn't have focus yet - because
   // the whole point is to GIVE it focus.
-  const editorWindow = getWindow(editor);
-  const activeElement = editorWindow.document.activeElement;
-  const editorHasFocus =
-    rootElement !== null &&
-    (rootElement === activeElement || rootElement.contains(activeElement));
-  const isExplicitFocusRequest = tags.has(FOCUS_TAG);
+  //
+  // NOTE: Only compute focus state when we're in a DOM environment (not headless/SSR).
+  // shouldSkipDOM is true in headless mode, so we guard getWindow() calls accordingly.
+  let editorHasFocus = false;
+  let isExplicitFocusRequest = false;
+  if (!shouldSkipDOM && rootElement !== null) {
+    const editorWindow = getWindow(editor);
+    const activeElement = editorWindow.document.activeElement;
+    editorHasFocus =
+      rootElement === activeElement || rootElement.contains(activeElement);
+    isExplicitFocusRequest = tags.has(FOCUS_TAG);
+  }
 
   if (
     editor._editable &&
