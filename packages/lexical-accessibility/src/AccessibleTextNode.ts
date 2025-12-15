@@ -39,6 +39,24 @@ export class AccessibleTextNode extends TextNode {
     return new AccessibleTextNode(node.__text, node.__key);
   }
 
+  /**
+   * Override isSimpleText to return true for AccessibleTextNode.
+   *
+   * The parent TextNode.isSimpleText() checks `this.__type === 'text'`,
+   * but AccessibleTextNode has type 'accessible-text'. This causes
+   * AutoLink plugin to skip processing AccessibleTextNode because it
+   * only processes "simple text" nodes.
+   *
+   * By overriding this method, we allow AutoLink (and other features
+   * that depend on isSimpleText) to work correctly with AccessibleTextNode.
+   */
+  isSimpleText(): boolean {
+    return (
+      (this.__type === 'text' || this.__type === 'accessible-text') &&
+      this.__mode === 0
+    );
+  }
+
   createDOM(config: EditorConfig): HTMLElement {
     const dom = super.createDOM(config);
     this.applyCSSFormatting(dom);
