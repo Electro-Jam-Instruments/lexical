@@ -213,6 +213,12 @@ export type TypeaheadMenuPluginProps<TOption extends MenuOption> = {
   parent?: HTMLElement;
   preselectFirstItem?: boolean;
   ignoreEntityBoundary?: boolean;
+  /**
+   * Accessible label for the menu container.
+   * Screen readers will announce this when the menu opens.
+   * @default 'Typeahead menu'
+   */
+  menuAriaLabel?: string;
 };
 
 export function LexicalTypeaheadMenuPlugin<TOption extends MenuOption>({
@@ -228,6 +234,7 @@ export function LexicalTypeaheadMenuPlugin<TOption extends MenuOption>({
   parent,
   preselectFirstItem = true,
   ignoreEntityBoundary = false,
+  menuAriaLabel,
 }: TypeaheadMenuPluginProps<TOption>): JSX.Element | null {
   const [editor] = useLexicalComposerContext();
   const [resolution, setResolution] = useState<MenuResolution | null>(null);
@@ -236,6 +243,8 @@ export function LexicalTypeaheadMenuPlugin<TOption extends MenuOption>({
     setResolution,
     anchorClassName,
     parent,
+    true, // shouldIncludePageYOffset__EXPERIMENTAL
+    menuAriaLabel,
   );
 
   const closeTypeahead = useCallback(() => {

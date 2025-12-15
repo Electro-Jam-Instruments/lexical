@@ -11,6 +11,7 @@ import type {JSX} from 'react';
 
 import './ImageNode.css';
 
+import {EmojisPlugin} from '@lexical/accessibility';
 import {useCollaborationContext} from '@lexical/react/LexicalCollaborationContext';
 import {CollaborationPlugin} from '@lexical/react/LexicalCollaborationPlugin';
 import {useLexicalComposerContext} from '@lexical/react/LexicalComposerContext';
@@ -53,7 +54,6 @@ import {createWebsocketProvider} from '../collaboration';
 import {useSettings} from '../context/SettingsContext';
 import {useSharedHistoryContext} from '../context/SharedHistoryContext';
 import brokenImage from '../images/image-broken.svg';
-import EmojisPlugin from '../plugins/EmojisPlugin';
 import KeywordsPlugin from '../plugins/KeywordsPlugin';
 import LinkPlugin from '../plugins/LinkPlugin';
 import MentionsPlugin from '../plugins/MentionsPlugin';

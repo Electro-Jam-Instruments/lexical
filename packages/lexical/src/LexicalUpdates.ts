@@ -49,6 +49,7 @@ import {
   applySelectionTransforms,
   updateDOMSelection,
 } from './LexicalSelection';
+import {FOCUS_TAG} from './LexicalUpdateTags';
 import {
   $getCompositionKey,
   getDOMSelection,
@@ -619,6 +620,24 @@ export function $commitPendingUpdates(
 
   // Attempt to update the DOM selection, including focusing of the root element,
   // and scroll into view if needed.
+  //
+  // ACCESSIBILITY FIX: Skip DOM selection updates when this editor doesn't have focus.
+  // window.getSelection() is a GLOBAL browser API shared by ALL editors on the page.
+  // When editor.update() runs on a hidden/background editor, touching this global
+  // selection corrupts the cursor position in whatever editor actually has focus.
+  // By checking if our rootElement contains the activeElement, we only update
+  // DOM selection for the editor the user is actually interacting with.
+  //
+  // EXCEPTION: When FOCUS_TAG is present (from editor.focus()), we MUST allow
+  // updateDOMSelection to run even if the editor doesn't have focus yet - because
+  // the whole point is to GIVE it focus.
+  const editorWindow = getWindow(editor);
+  const activeElement = editorWindow.document.activeElement;
+  const editorHasFocus =
+    rootElement !== null &&
+    (rootElement === activeElement || rootElement.contains(activeElement));
+  const isExplicitFocusRequest = tags.has(FOCUS_TAG);
+
   if (
     editor._editable &&
     // domSelection will be null in headless
@@ -628,7 +647,10 @@ export function $commitPendingUpdates(
       pendingSelection.dirty ||
       !pendingSelection.is(currentSelection)) &&
     rootElement !== null &&
-    !tags.has(SKIP_DOM_SELECTION_TAG)
+    !tags.has(SKIP_DOM_SELECTION_TAG) &&
+    // ACCESSIBILITY: Only update DOM selection if this editor has focus,
+    // OR if this is an explicit focus request (editor.focus() was called)
+    (editorHasFocus || isExplicitFocusRequest)
   ) {
     activeEditor = editor;
     activeEditorState = pendingEditorState;

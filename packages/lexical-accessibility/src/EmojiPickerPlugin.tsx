@@ -262,6 +262,7 @@ export function EmojiPickerPlugin({
       onSelectOption={onSelectOption}
       triggerFn={checkForTriggerMatch}
       options={options}
+      menuAriaLabel="Emoji"
       menuRenderFn={(
         anchorElementRef,
         {selectedIndex, selectOptionAndCleanUp, setHighlightedIndex},

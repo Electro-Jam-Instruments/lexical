@@ -525,11 +525,12 @@ export function LexicalMenu<TOption extends MenuOption>({
 function setContainerDivAttributes(
   containerDiv: HTMLElement,
   className?: string,
+  ariaLabel?: string,
 ) {
   if (className != null) {
     containerDiv.className = className;
   }
-  containerDiv.setAttribute('aria-label', 'Typeahead menu');
+  containerDiv.setAttribute('aria-label', ariaLabel ?? 'Typeahead menu');
   containerDiv.setAttribute('role', 'listbox');
   containerDiv.style.display = 'block';
   containerDiv.style.position = 'absolute';
@@ -541,6 +542,7 @@ export function useMenuAnchorRef(
   className?: string,
   parent: HTMLElement | undefined = CAN_USE_DOM ? document.body : undefined,
   shouldIncludePageYOffset__EXPERIMENTAL: boolean = true,
+  ariaLabel?: string,
 ): RefObject<HTMLElement | null> {
   const [editor] = useLexicalComposerContext();
   const initialAnchorElement = CAN_USE_DOM
@@ -596,7 +598,7 @@ export function useMenuAnchorRef(
       }
 
       if (!containerDiv.isConnected) {
-        setContainerDivAttributes(containerDiv, className);
+        setContainerDivAttributes(containerDiv, className, ariaLabel);
         parent.append(containerDiv);
       }
       containerDiv.setAttribute('id', 'typeahead-menu');
@@ -608,6 +610,7 @@ export function useMenuAnchorRef(
     shouldIncludePageYOffset__EXPERIMENTAL,
     className,
     parent,
+    ariaLabel,
   ]);
 
   useEffect(() => {
@@ -651,7 +654,7 @@ export function useMenuAnchorRef(
     initialAnchorElement != null &&
     initialAnchorElement === anchorElementRef.current
   ) {
-    setContainerDivAttributes(initialAnchorElement, className);
+    setContainerDivAttributes(initialAnchorElement, className, ariaLabel);
     if (parent != null) {
       parent.append(initialAnchorElement);
     }

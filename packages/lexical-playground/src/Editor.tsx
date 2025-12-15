@@ -8,7 +8,13 @@
 
 import type {JSX} from 'react';
 
-import {AccessibilityPlugin, createEmojiConfig} from '@lexical/accessibility';
+import {
+  AccessibilityPlugin,
+  createEmojiConfig,
+  EmojiNode,
+  EmojiPickerPlugin,
+  EmojisPlugin,
+} from '@lexical/accessibility';
 import {AutoFocusPlugin} from '@lexical/react/LexicalAutoFocusPlugin';
 import {CharacterLimitPlugin} from '@lexical/react/LexicalCharacterLimitPlugin';
 import {CheckListPlugin} from '@lexical/react/LexicalCheckListPlugin';
@@ -40,7 +46,6 @@ import {
 } from './collaboration';
 import {useSettings} from './context/SettingsContext';
 import {useSharedHistoryContext} from './context/SharedHistoryContext';
-import {EmojiNode} from './nodes/EmojiNode';
 import ActionsPlugin from './plugins/ActionsPlugin';
 import AutocompletePlugin from './plugins/AutocompletePlugin';
 import AutoEmbedPlugin from './plugins/AutoEmbedPlugin';
@@ -55,8 +60,6 @@ import ContextMenuPlugin from './plugins/ContextMenuPlugin';
 import DateTimePlugin from './plugins/DateTimePlugin';
 import DragDropPaste from './plugins/DragDropPastePlugin';
 import DraggableBlockPlugin from './plugins/DraggableBlockPlugin';
-import EmojiPickerPlugin from './plugins/EmojiPickerPlugin';
-import EmojisPlugin from './plugins/EmojisPlugin';
 import EquationsPlugin from './plugins/EquationsPlugin';
 import ExcalidrawPlugin from './plugins/ExcalidrawPlugin';
 import FigmaPlugin from './plugins/FigmaPlugin';
@@ -189,7 +192,9 @@ export default function Editor(): JSX.Element {
         {selectionAlwaysOnDisplay && <SelectionAlwaysOnDisplay />}
         <ClearEditorPlugin />
         <ComponentPickerPlugin />
-        <EmojiPickerPlugin />
+        <EmojiPickerPlugin
+          emojiDataLoader={() => import('./utils/emoji-list')}
+        />
         <AutoEmbedPlugin />
         <MentionsPlugin />
         <EmojisPlugin />

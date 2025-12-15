@@ -42,15 +42,32 @@ import {ACCESSIBILITY_TRANSFORMERS} from './transformers';
  */
 export interface InsertMarkdownOptions {
   /**
+   * @deprecated Use `restoreSelectionOnFocus` instead. This option will be
+   * removed in a future version.
+   *
    * When true, preserves the current selection/cursor position instead of
    * moving the cursor to the end of inserted content.
-   *
-   * Use this when inserting content into a non-focused/background editor
-   * to prevent focus from shifting to that editor.
    *
    * @default false
    */
   preserveSelection?: boolean;
+
+  /**
+   * When true, restores the cursor to its ORIGINAL position (before insertion)
+   * after the markdown content is inserted.
+   *
+   * This is useful when inserting content into a non-focused/background editor:
+   * - Content is inserted at whatever selection exists in the background editor
+   * - Cursor position is restored to where it was BEFORE insertion
+   * - When user focuses the editor, they see cursor at original position
+   *
+   * NOTE: With the accessibility fix in Lexical's DOM reconciler, background
+   * editors no longer steal focus when content is inserted. This option
+   * ensures the cursor position in the background editor is also preserved.
+   *
+   * @default false
+   */
+  restoreSelectionOnFocus?: boolean;
 }
 
 /**
@@ -622,10 +639,11 @@ function $applyTextFormatsToElementTransformResults(
  *   $insertMarkdownAtSelection('**bold text** and *italic*');
  * });
  *
- * // Background insert - cursor stays where it was
- * editor.update(() => {
+ * // Background insert into non-focused editor - cursor stays at original position
+ * // Use this when inserting content into an editor that doesn't have focus
+ * backgroundEditor.update(() => {
  *   $insertMarkdownAtSelection('# Heading\n\nContent', ACCESSIBILITY_TRANSFORMERS, {
- *     preserveSelection: true,
+ *     restoreSelectionOnFocus: true,
  *   });
  * }, { tag: SUPPRESS_A11Y_ANNOUNCEMENTS_TAG });
  * ```
@@ -635,7 +653,9 @@ export function $insertMarkdownAtSelection(
   transformers: Array<Transformer> = ACCESSIBILITY_TRANSFORMERS,
   options: InsertMarkdownOptions = {},
 ): void {
-  const {preserveSelection = false} = options;
+  const {preserveSelection = false, restoreSelectionOnFocus = false} = options;
+  // Either flag enables selection preservation behavior
+  const shouldPreserveSelection = preserveSelection || restoreSelectionOnFocus;
 
   const selection = $getSelection();
   const root = $getRoot();
@@ -647,7 +667,7 @@ export function $insertMarkdownAtSelection(
   let _originalFocusKey: string | null = null;
   let _originalFocusOffset = 0;
 
-  if (preserveSelection && $isRangeSelection(selection)) {
+  if (shouldPreserveSelection && $isRangeSelection(selection)) {
     originalAnchorKey = selection.anchor.key;
     originalAnchorOffset = selection.anchor.offset;
     _originalFocusKey = selection.focus.key;
@@ -667,7 +687,7 @@ export function $insertMarkdownAtSelection(
   if (!hasMarkdownSyntax && !isMultiLine) {
     selection.insertText(markdownString);
     // If preserving selection, restore the original position
-    if (preserveSelection && originalAnchorKey) {
+    if (shouldPreserveSelection && originalAnchorKey) {
       const anchorNode = $getNodeByKey(originalAnchorKey);
       if (anchorNode && $isTextNode(anchorNode) && anchorNode.isAttached()) {
         const textLen = anchorNode.getTextContent().length;
@@ -808,9 +828,10 @@ export function $insertMarkdownAtSelection(
 
   // PHASE 3: Cursor position handling
   // We cleared selection before Phase 2, so we MUST restore it to a valid node.
-  // When preserveSelection is true, we try to restore to the original position
-  // (or as close as possible). When false, we move cursor to end of inserted content.
-  if (preserveSelection) {
+  // When shouldPreserveSelection is true (preserveSelection or restoreSelectionOnFocus),
+  // we try to restore to the original position (or as close as possible).
+  // When false, we move cursor to end of inserted content.
+  if (shouldPreserveSelection) {
     // For preserveSelection mode (background editors), we need to set selection
     // to a valid node but avoid triggering focus. Try to restore original position.
     // Since we cleared selection earlier, we can't leave it null.

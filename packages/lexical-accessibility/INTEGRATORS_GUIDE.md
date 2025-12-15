@@ -21,25 +21,25 @@ This guide covers everything you need to integrate the accessibility features in
 
 ### Step 1: Update package.json
 
-Replace `v0.38.2-a11y.11` with the latest release tag:
+Replace `v0.38.2-a11y.19` with the latest release tag:
 
 ```json
 {
   "dependencies": {
-    "lexical": "https://github.com/Electro-Jam-Instruments/lexical/releases/download/v0.38.2-a11y.11/lexical-0.38.2.tgz",
-    "@lexical/accessibility": "https://github.com/Electro-Jam-Instruments/lexical/releases/download/v0.38.2-a11y.11/lexical-accessibility-0.38.2.tgz",
-    "@lexical/react": "https://github.com/Electro-Jam-Instruments/lexical/releases/download/v0.38.2-a11y.11/lexical-react-0.38.2.tgz",
-    "@lexical/rich-text": "https://github.com/Electro-Jam-Instruments/lexical/releases/download/v0.38.2-a11y.11/lexical-rich-text-0.38.2.tgz",
-    "@lexical/list": "https://github.com/Electro-Jam-Instruments/lexical/releases/download/v0.38.2-a11y.11/lexical-list-0.38.2.tgz",
-    "@lexical/link": "https://github.com/Electro-Jam-Instruments/lexical/releases/download/v0.38.2-a11y.11/lexical-link-0.38.2.tgz",
-    "@lexical/table": "https://github.com/Electro-Jam-Instruments/lexical/releases/download/v0.38.2-a11y.11/lexical-table-0.38.2.tgz",
-    "@lexical/selection": "https://github.com/Electro-Jam-Instruments/lexical/releases/download/v0.38.2-a11y.11/lexical-selection-0.38.2.tgz",
-    "@lexical/utils": "https://github.com/Electro-Jam-Instruments/lexical/releases/download/v0.38.2-a11y.11/lexical-utils-0.38.2.tgz",
-    "@lexical/clipboard": "https://github.com/Electro-Jam-Instruments/lexical/releases/download/v0.38.2-a11y.11/lexical-clipboard-0.38.2.tgz",
-    "@lexical/code": "https://github.com/Electro-Jam-Instruments/lexical/releases/download/v0.38.2-a11y.11/lexical-code-0.38.2.tgz",
-    "@lexical/history": "https://github.com/Electro-Jam-Instruments/lexical/releases/download/v0.38.2-a11y.11/lexical-history-0.38.2.tgz",
-    "@lexical/html": "https://github.com/Electro-Jam-Instruments/lexical/releases/download/v0.38.2-a11y.11/lexical-html-0.38.2.tgz",
-    "@lexical/markdown": "https://github.com/Electro-Jam-Instruments/lexical/releases/download/v0.38.2-a11y.11/lexical-markdown-0.38.2.tgz"
+    "lexical": "https://github.com/Electro-Jam-Instruments/lexical/releases/download/v0.38.2-a11y.19/lexical-0.38.2.tgz",
+    "@lexical/accessibility": "https://github.com/Electro-Jam-Instruments/lexical/releases/download/v0.38.2-a11y.19/lexical-accessibility-0.38.2.tgz",
+    "@lexical/react": "https://github.com/Electro-Jam-Instruments/lexical/releases/download/v0.38.2-a11y.19/lexical-react-0.38.2.tgz",
+    "@lexical/rich-text": "https://github.com/Electro-Jam-Instruments/lexical/releases/download/v0.38.2-a11y.19/lexical-rich-text-0.38.2.tgz",
+    "@lexical/list": "https://github.com/Electro-Jam-Instruments/lexical/releases/download/v0.38.2-a11y.19/lexical-list-0.38.2.tgz",
+    "@lexical/link": "https://github.com/Electro-Jam-Instruments/lexical/releases/download/v0.38.2-a11y.19/lexical-link-0.38.2.tgz",
+    "@lexical/table": "https://github.com/Electro-Jam-Instruments/lexical/releases/download/v0.38.2-a11y.19/lexical-table-0.38.2.tgz",
+    "@lexical/selection": "https://github.com/Electro-Jam-Instruments/lexical/releases/download/v0.38.2-a11y.19/lexical-selection-0.38.2.tgz",
+    "@lexical/utils": "https://github.com/Electro-Jam-Instruments/lexical/releases/download/v0.38.2-a11y.19/lexical-utils-0.38.2.tgz",
+    "@lexical/clipboard": "https://github.com/Electro-Jam-Instruments/lexical/releases/download/v0.38.2-a11y.19/lexical-clipboard-0.38.2.tgz",
+    "@lexical/code": "https://github.com/Electro-Jam-Instruments/lexical/releases/download/v0.38.2-a11y.19/lexical-code-0.38.2.tgz",
+    "@lexical/history": "https://github.com/Electro-Jam-Instruments/lexical/releases/download/v0.38.2-a11y.19/lexical-history-0.38.2.tgz",
+    "@lexical/html": "https://github.com/Electro-Jam-Instruments/lexical/releases/download/v0.38.2-a11y.19/lexical-html-0.38.2.tgz",
+    "@lexical/markdown": "https://github.com/Electro-Jam-Instruments/lexical/releases/download/v0.38.2-a11y.19/lexical-markdown-0.38.2.tgz"
   }
 }
 ```
@@ -593,18 +593,32 @@ Use this when:
 
 ## Background Editor Operations
 
-When you have multiple editors in your application and need to programmatically insert content into a non-focused/hidden editor, use the `preserveSelection` option to prevent focus from shifting.
+When you have multiple editors in your application and need to programmatically insert content into a non-focused/hidden editor, this fork includes fixes to prevent focus stealing.
 
-### The Problem
+### The Problem (Solved Automatically)
 
-Normally, when you insert markdown content using `$insertMarkdownAtSelection`, the function moves the cursor to the end of the document. This cursor movement can:
-1. Trigger focus events that shift focus to the hidden editor
-2. Cause screen readers to announce the new cursor position
-3. Disrupt the user's workflow in the currently focused editor
+In standard Lexical, when you call `editor.update()` on ANY editor, the DOM reconciler touches `window.getSelection()` - a GLOBAL browser API shared by ALL editors on the page. This meant:
 
-### The Solution
+1. Editing a hidden editor corrupted the cursor in the visible editor
+2. The visible editor's cursor would jump to unexpected positions
+3. Screen readers would announce confusing selection changes
 
-Use the `preserveSelection: true` option to skip cursor restoration:
+### The Solution (Automatic)
+
+As of v0.38.2-a11y.19, this is **automatically fixed** in the core Lexical reconciler. When `editor.update()` runs, the DOM selection update is SKIPPED for editors that don't have focus. This means:
+
+- Content is inserted correctly into the background editor
+- The Lexical model state is updated (selection at end of content)
+- BUT the browser's DOM selection is NOT touched
+- The visible editor's cursor stays exactly where it was
+
+**No code changes required** - this fix works automatically for all `editor.update()` calls.
+
+### Cursor Position When Focus Returns
+
+When the user focuses the background editor, the cursor will be at the **end of the inserted content** (because that's what Lexical's internal selection state says).
+
+If you want the cursor to return to its **original position** (before insertion), use `restoreSelectionOnFocus`:
 
 ```tsx
 import {
@@ -613,12 +627,12 @@ import {
   ACCESSIBILITY_TRANSFORMERS,
 } from '@lexical/accessibility';
 
-// Insert into a background editor without stealing focus
+// Insert into background editor - cursor returns to original position when focused
 backgroundEditor.update(() => {
   $insertMarkdownAtSelection(
     '# New Heading\n\nSome **bold** content',
     ACCESSIBILITY_TRANSFORMERS,
-    { preserveSelection: true }
+    { restoreSelectionOnFocus: true }
   );
 }, {
   tag: SUPPRESS_A11Y_ANNOUNCEMENTS_TAG
@@ -630,17 +644,31 @@ backgroundEditor.update(() => {
 ```typescript
 interface InsertMarkdownOptions {
   /**
-   * When true, preserves the current selection/cursor position instead of
-   * moving the cursor to the end of inserted content.
+   * @deprecated Use `restoreSelectionOnFocus` instead.
+   */
+  preserveSelection?: boolean;
+
+  /**
+   * When true, restores the cursor to its ORIGINAL position (before insertion)
+   * after the markdown content is inserted.
    *
-   * Use this when inserting content into a non-focused/background editor
-   * to prevent focus from shifting to that editor.
+   * This is useful when inserting content into a non-focused/background editor:
+   * - Content is inserted at whatever selection exists in the background editor
+   * - Cursor position is restored to where it was BEFORE insertion
+   * - When user focuses the editor, they see cursor at original position
    *
    * @default false
    */
-  preserveSelection?: boolean;
+  restoreSelectionOnFocus?: boolean;
 }
 ```
+
+### Summary: What Happens with Different Options
+
+| Scenario | DOM Selection | Cursor when focused |
+|----------|---------------|---------------------|
+| Default (no options) | Not touched (auto-fix) | End of inserted content |
+| `restoreSelectionOnFocus: true` | Not touched (auto-fix) | Original position before insert |
 
 ### Common Use Cases
 
@@ -903,7 +931,7 @@ nodes: [
 
 ## Version Compatibility
 
-This guide is for `v0.38.2-a11y.11`. When updating to newer versions:
+This guide is for `v0.38.2-a11y.19`. When updating to newer versions:
 
 1. Update all package.json URLs to the new version tag
 2. Run clean install: `rm -rf node_modules package-lock.json && npm cache clean --force && npm install`

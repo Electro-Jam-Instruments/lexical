@@ -8,7 +8,7 @@
 
 import type {Klass, LexicalNode} from 'lexical';
 
-import {AccessibleTextNode} from '@lexical/accessibility';
+import {AccessibleTextNode, EmojiNode} from '@lexical/accessibility';
 import {CodeHighlightNode, CodeNode} from '@lexical/code';
 import {HashtagNode} from '@lexical/hashtag';
 import {AutoLinkNode, LinkNode} from '@lexical/link';
@@ -24,7 +24,6 @@ import {CollapsibleContentNode} from '../plugins/CollapsiblePlugin/CollapsibleCo
 import {CollapsibleTitleNode} from '../plugins/CollapsiblePlugin/CollapsibleTitleNode';
 import {AutocompleteNode} from './AutocompleteNode';
 import {DateTimeNode} from './DateTimeNode/DateTimeNode';
-import {EmojiNode} from './EmojiNode';
 import {EquationNode} from './EquationNode';
 import {ExcalidrawNode} from './ExcalidrawNode';
 import {FigmaNode} from './FigmaNode';
