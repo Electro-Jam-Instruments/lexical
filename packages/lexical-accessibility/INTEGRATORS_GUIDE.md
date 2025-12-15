@@ -111,24 +111,28 @@ The `AccessibleTextNode` uses CSS classes instead of semantic HTML tags (`<stron
 
 ### Setup
 
-**IMPORTANT:** Use `ACCESSIBLE_TEXT_NODE_REPLACEMENT` instead of just `AccessibleTextNode` to ensure proper transform inheritance (required for AutoLink and other features):
+**IMPORTANT:** You must include BOTH `AccessibleTextNode` AND `ACCESSIBLE_TEXT_NODE_REPLACEMENT` in your nodes array:
 
 ```tsx
-import {ACCESSIBLE_TEXT_NODE_REPLACEMENT} from '@lexical/accessibility';
+import {AccessibleTextNode, ACCESSIBLE_TEXT_NODE_REPLACEMENT} from '@lexical/accessibility';
 
 const initialConfig = {
   namespace: 'MyEditor',
   nodes: [
-    ACCESSIBLE_TEXT_NODE_REPLACEMENT,
+    AccessibleTextNode,              // Registers the 'accessible-text' node type
+    ACCESSIBLE_TEXT_NODE_REPLACEMENT, // Sets up TextNode → AccessibleTextNode replacement with withKlass
     // ... other nodes
   ],
   onError: (error) => console.error(error),
 };
 ```
 
-> **Why `ACCESSIBLE_TEXT_NODE_REPLACEMENT`?**
+> **Why both entries?**
 >
-> Lexical's transform system works by node type. When you register `AccessibleTextNode` directly, transforms registered for `TextNode` (like AutoLink) won't fire for `AccessibleTextNode` because they have different types. The `ACCESSIBLE_TEXT_NODE_REPLACEMENT` config tells Lexical to also apply `TextNode` transforms to `AccessibleTextNode`.
+> - `AccessibleTextNode` registers the node type `'accessible-text'` so Lexical knows about it
+> - `ACCESSIBLE_TEXT_NODE_REPLACEMENT` configures the replacement AND uses `withKlass` to tell Lexical that transforms for `TextNode` (like AutoLink) should also apply to `AccessibleTextNode`
+>
+> Without both entries, you'll get: `Node _AccessibleTextNode has not been registered`
 
 ### Required CSS
 
@@ -199,12 +203,13 @@ The package provides three components for emoji functionality:
 ### Step 1: Register EmojiNode
 
 ```tsx
-import {ACCESSIBLE_TEXT_NODE_REPLACEMENT, EmojiNode} from '@lexical/accessibility';
+import {AccessibleTextNode, ACCESSIBLE_TEXT_NODE_REPLACEMENT, EmojiNode} from '@lexical/accessibility';
 
 const initialConfig = {
   namespace: 'MyEditor',
   nodes: [
-    ACCESSIBLE_TEXT_NODE_REPLACEMENT,
+    AccessibleTextNode,              // Register node type
+    ACCESSIBLE_TEXT_NODE_REPLACEMENT, // Set up replacement + withKlass
     EmojiNode,
     // ... other nodes
   ],
@@ -747,6 +752,7 @@ import {HorizontalRuleNode} from '@lexical/react/LexicalHorizontalRuleNode';
 import {
   // Core accessibility
   AccessibilityPlugin,
+  AccessibleTextNode,
   ACCESSIBLE_TEXT_NODE_REPLACEMENT,
 
   // Emoji support
@@ -770,8 +776,9 @@ const initialConfig = {
     // Your theme config
   },
   nodes: [
-    // IMPORTANT: Use ACCESSIBLE_TEXT_NODE_REPLACEMENT for AutoLink to work!
-    ACCESSIBLE_TEXT_NODE_REPLACEMENT,
+    // IMPORTANT: Include BOTH for AccessibleTextNode to work with transforms!
+    AccessibleTextNode,              // Registers 'accessible-text' node type
+    ACCESSIBLE_TEXT_NODE_REPLACEMENT, // Sets up replacement with withKlass for transforms
     EmojiNode,
     AutoLinkNode,
     LinkNode,
@@ -836,16 +843,29 @@ export default AccessibleEditor;
 
 ## Troubleshooting
 
+### "Node _AccessibleTextNode has not been registered" Error
+
+This happens when using `ACCESSIBLE_TEXT_NODE_REPLACEMENT` without also registering `AccessibleTextNode`. You need BOTH:
+
+```tsx
+import {AccessibleTextNode, ACCESSIBLE_TEXT_NODE_REPLACEMENT} from '@lexical/accessibility';
+
+nodes: [
+  AccessibleTextNode,              // REQUIRED: Registers the node type
+  ACCESSIBLE_TEXT_NODE_REPLACEMENT, // REQUIRED: Sets up replacement + withKlass
+  // ... other nodes
+]
+```
+
 ### AutoLink not converting URLs
 
-**Most common cause:** Using `AccessibleTextNode` instead of `ACCESSIBLE_TEXT_NODE_REPLACEMENT`.
-
-1. **Use the replacement config** - The `ACCESSIBLE_TEXT_NODE_REPLACEMENT` export ensures `TextNode` transforms (like AutoLink) also apply to `AccessibleTextNode`:
+1. **Include both AccessibleTextNode entries** - You need BOTH `AccessibleTextNode` AND `ACCESSIBLE_TEXT_NODE_REPLACEMENT`:
    ```tsx
-   import {ACCESSIBLE_TEXT_NODE_REPLACEMENT} from '@lexical/accessibility';
+   import {AccessibleTextNode, ACCESSIBLE_TEXT_NODE_REPLACEMENT} from '@lexical/accessibility';
 
    nodes: [
-     ACCESSIBLE_TEXT_NODE_REPLACEMENT,  // NOT just AccessibleTextNode
+     AccessibleTextNode,
+     ACCESSIBLE_TEXT_NODE_REPLACEMENT,
      AutoLinkNode,
      LinkNode,
    ]
@@ -859,7 +879,7 @@ export default AccessibleEditor;
 
 1. Ensure `EmojiNode` is registered in your nodes array
 2. Ensure `EmojisPlugin` is included in your editor
-3. Check that `ACCESSIBLE_TEXT_NODE_REPLACEMENT` is used (required for emoji transforms)
+3. Include both `AccessibleTextNode` AND `ACCESSIBLE_TEXT_NODE_REPLACEMENT` (required for emoji transforms)
 
 ### Emoji picker not showing
 
@@ -875,7 +895,7 @@ export default AccessibleEditor;
 
 ### CSS formatting not working
 
-1. Use `ACCESSIBLE_TEXT_NODE_REPLACEMENT` in nodes array
+1. Include BOTH `AccessibleTextNode` AND `ACCESSIBLE_TEXT_NODE_REPLACEMENT` in nodes array
 2. Ensure `config.useCSSFormatting` is `true` (default)
 3. Add the required CSS classes to your stylesheet
 

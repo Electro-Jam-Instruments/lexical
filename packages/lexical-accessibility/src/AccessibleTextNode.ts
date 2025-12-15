@@ -179,13 +179,18 @@ export function $isAccessibleTextNode(
  * features like AutoLink won't work because they only register transforms
  * for TextNode, not AccessibleTextNode.
  *
+ * NOTE: You must include BOTH entries in your nodes array:
+ * - AccessibleTextNode (registers the 'accessible-text' type)
+ * - ACCESSIBLE_TEXT_NODE_REPLACEMENT (sets up TextNode → AccessibleTextNode replacement with withKlass)
+ *
  * @example
  * ```tsx
- * import { ACCESSIBLE_TEXT_NODE_REPLACEMENT } from '@lexical/accessibility';
+ * import { AccessibleTextNode, ACCESSIBLE_TEXT_NODE_REPLACEMENT } from '@lexical/accessibility';
  *
  * const initialConfig = {
  *   nodes: [
- *     ACCESSIBLE_TEXT_NODE_REPLACEMENT,
+ *     AccessibleTextNode,              // Register the node type
+ *     ACCESSIBLE_TEXT_NODE_REPLACEMENT, // Set up replacement with withKlass
  *     // ... other nodes
  *   ],
  * };
