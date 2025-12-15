@@ -13,6 +13,7 @@ export {AccessibilityPlugin} from './LexicalAccessibilityPlugin';
 export {
   $createAccessibleTextNode,
   $isAccessibleTextNode,
+  ACCESSIBLE_TEXT_NODE_REPLACEMENT,
   AccessibleTextNode,
 } from './AccessibleTextNode';
 

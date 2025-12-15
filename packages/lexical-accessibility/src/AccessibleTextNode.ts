@@ -164,3 +164,42 @@ export function $isAccessibleTextNode(
 ): node is AccessibleTextNode {
   return node instanceof AccessibleTextNode;
 }
+
+/**
+ * Node replacement configuration for AccessibleTextNode.
+ *
+ * IMPORTANT: Use this instead of just `AccessibleTextNode` in your nodes array!
+ *
+ * This configuration tells Lexical to:
+ * 1. Replace all TextNode instances with AccessibleTextNode
+ * 2. Register AccessibleTextNode as a replacement class (withKlass)
+ *
+ * The `withKlass` property is critical - it ensures that transforms registered
+ * for TextNode (like AutoLink) also apply to AccessibleTextNode. Without it,
+ * features like AutoLink won't work because they only register transforms
+ * for TextNode, not AccessibleTextNode.
+ *
+ * @example
+ * ```tsx
+ * import { ACCESSIBLE_TEXT_NODE_REPLACEMENT } from '@lexical/accessibility';
+ *
+ * const initialConfig = {
+ *   nodes: [
+ *     ACCESSIBLE_TEXT_NODE_REPLACEMENT,
+ *     // ... other nodes
+ *   ],
+ * };
+ * ```
+ */
+export const ACCESSIBLE_TEXT_NODE_REPLACEMENT = {
+  replace: TextNode,
+  with: (node: TextNode): AccessibleTextNode => {
+    const accessibleNode = new AccessibleTextNode(node.__text);
+    accessibleNode.setFormat(node.getFormat());
+    accessibleNode.setDetail(node.getDetail());
+    accessibleNode.setMode(node.getMode());
+    accessibleNode.setStyle(node.getStyle());
+    return accessibleNode;
+  },
+  withKlass: AccessibleTextNode,
+};

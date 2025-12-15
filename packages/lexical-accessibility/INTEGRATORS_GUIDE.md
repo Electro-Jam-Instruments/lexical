@@ -111,18 +111,24 @@ The `AccessibleTextNode` uses CSS classes instead of semantic HTML tags (`<stron
 
 ### Setup
 
+**IMPORTANT:** Use `ACCESSIBLE_TEXT_NODE_REPLACEMENT` instead of just `AccessibleTextNode` to ensure proper transform inheritance (required for AutoLink and other features):
+
 ```tsx
-import {AccessibleTextNode} from '@lexical/accessibility';
+import {ACCESSIBLE_TEXT_NODE_REPLACEMENT} from '@lexical/accessibility';
 
 const initialConfig = {
   namespace: 'MyEditor',
   nodes: [
-    AccessibleTextNode,
+    ACCESSIBLE_TEXT_NODE_REPLACEMENT,
     // ... other nodes
   ],
   onError: (error) => console.error(error),
 };
 ```
+
+> **Why `ACCESSIBLE_TEXT_NODE_REPLACEMENT`?**
+>
+> Lexical's transform system works by node type. When you register `AccessibleTextNode` directly, transforms registered for `TextNode` (like AutoLink) won't fire for `AccessibleTextNode` because they have different types. The `ACCESSIBLE_TEXT_NODE_REPLACEMENT` config tells Lexical to also apply `TextNode` transforms to `AccessibleTextNode`.
 
 ### Required CSS
 
@@ -193,12 +199,12 @@ The package provides three components for emoji functionality:
 ### Step 1: Register EmojiNode
 
 ```tsx
-import {AccessibleTextNode, EmojiNode} from '@lexical/accessibility';
+import {ACCESSIBLE_TEXT_NODE_REPLACEMENT, EmojiNode} from '@lexical/accessibility';
 
 const initialConfig = {
   namespace: 'MyEditor',
   nodes: [
-    AccessibleTextNode,
+    ACCESSIBLE_TEXT_NODE_REPLACEMENT,
     EmojiNode,
     // ... other nodes
   ],
@@ -741,7 +747,7 @@ import {HorizontalRuleNode} from '@lexical/react/LexicalHorizontalRuleNode';
 import {
   // Core accessibility
   AccessibilityPlugin,
-  AccessibleTextNode,
+  ACCESSIBLE_TEXT_NODE_REPLACEMENT,
 
   // Emoji support
   EmojiNode,
@@ -764,8 +770,8 @@ const initialConfig = {
     // Your theme config
   },
   nodes: [
-    // Accessibility nodes
-    AccessibleTextNode,
+    // IMPORTANT: Use ACCESSIBLE_TEXT_NODE_REPLACEMENT for AutoLink to work!
+    ACCESSIBLE_TEXT_NODE_REPLACEMENT,
     EmojiNode,
     AutoLinkNode,
     LinkNode,
@@ -830,11 +836,30 @@ export default AccessibleEditor;
 
 ## Troubleshooting
 
+### AutoLink not converting URLs
+
+**Most common cause:** Using `AccessibleTextNode` instead of `ACCESSIBLE_TEXT_NODE_REPLACEMENT`.
+
+1. **Use the replacement config** - The `ACCESSIBLE_TEXT_NODE_REPLACEMENT` export ensures `TextNode` transforms (like AutoLink) also apply to `AccessibleTextNode`:
+   ```tsx
+   import {ACCESSIBLE_TEXT_NODE_REPLACEMENT} from '@lexical/accessibility';
+
+   nodes: [
+     ACCESSIBLE_TEXT_NODE_REPLACEMENT,  // NOT just AccessibleTextNode
+     AutoLinkNode,
+     LinkNode,
+   ]
+   ```
+
+2. **Ensure both link nodes are registered** - `AutoLinkNode` AND `LinkNode` must be in your nodes array
+
+3. **Ensure plugin is mounted** - `<AccessibilityAutoLinkPlugin />` must be inside your `<LexicalComposer>`
+
 ### Emojis not converting
 
 1. Ensure `EmojiNode` is registered in your nodes array
 2. Ensure `EmojisPlugin` is included in your editor
-3. Check that `AccessibleTextNode` is registered (required for emoji transforms)
+3. Check that `ACCESSIBLE_TEXT_NODE_REPLACEMENT` is used (required for emoji transforms)
 
 ### Emoji picker not showing
 
@@ -850,7 +875,7 @@ export default AccessibleEditor;
 
 ### CSS formatting not working
 
-1. Register `AccessibleTextNode` in nodes array
+1. Use `ACCESSIBLE_TEXT_NODE_REPLACEMENT` in nodes array
 2. Ensure `config.useCSSFormatting` is `true` (default)
 3. Add the required CSS classes to your stylesheet
 
