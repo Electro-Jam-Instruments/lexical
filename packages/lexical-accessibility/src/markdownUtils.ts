@@ -29,6 +29,7 @@ import {
   $isParagraphNode,
   $isRangeSelection,
   $isTextNode,
+  $setSelection,
   type ElementNode,
   type LexicalNode,
   type TextNode,
@@ -310,6 +311,85 @@ function $applyTextFormatTransformers(
 }
 
 /**
+ * Applies text match transformers (like LINK) to a text node.
+ * This handles markdown syntax like [text](url) converting to LinkNode.
+ */
+function $applyTextMatchTransformers(
+  textNode: TextNode,
+  textMatchTransformers: Array<TextMatchTransformer>,
+): void {
+  if (!textNode.isAttached()) {
+    return;
+  }
+
+  for (const transformer of textMatchTransformers) {
+    if (!transformer.replace || !transformer.importRegExp) {
+      continue;
+    }
+
+    let currentNode: TextNode | null = textNode;
+    let iterations = 0;
+    const maxIterations = 100; // Safety limit
+
+    while (
+      currentNode &&
+      currentNode.isAttached() &&
+      iterations < maxIterations
+    ) {
+      iterations++;
+      const currentText = currentNode.getTextContent();
+      const match = currentText.match(transformer.importRegExp);
+
+      if (!match) {
+        break;
+      }
+
+      const matchIndex = match.index;
+      if (matchIndex === undefined) {
+        break;
+      }
+
+      try {
+        // Split node if match doesn't start at beginning
+        let nodeToTransform: TextNode = currentNode;
+        let afterNode: TextNode | null = null;
+
+        if (matchIndex > 0) {
+          // Split: [before][match+after]
+          const [_before, rest] = currentNode.splitText(matchIndex);
+          nodeToTransform = rest;
+        }
+
+        // Now nodeToTransform starts with the match
+        // If there's content after the match, split again
+        const matchLength = match[0].length;
+        const nodeText = nodeToTransform.getTextContent();
+
+        if (matchLength < nodeText.length) {
+          const [matchPart, restPart] = nodeToTransform.splitText(matchLength);
+          nodeToTransform = matchPart;
+          afterNode = restPart;
+        }
+
+        // Re-match on the isolated node to get proper match object
+        const isolatedMatch = nodeToTransform
+          .getTextContent()
+          .match(transformer.importRegExp);
+        if (isolatedMatch) {
+          // Call the transformer's replace function
+          transformer.replace(nodeToTransform, isolatedMatch);
+        }
+
+        // Continue processing after the match
+        currentNode = afterNode;
+      } catch (_e) {
+        break;
+      }
+    }
+  }
+}
+
+/**
  * Applies code block transforms to paragraphs that match ``` fences.
  * This must run BEFORE Phase 2 because code blocks span multiple paragraphs.
  *
@@ -443,18 +523,31 @@ function $collectTextNodes(node: LexicalNode): TextNode[] {
 }
 
 /**
- * Applies text format transforms (bold, italic, etc.) to text nodes inside
+ * Applies text format and text match transforms to text nodes inside
  * element-transformed nodes like lists, headings, and quotes.
  *
  * This is needed because element transforms (list, heading, quote) move the
  * text content to a new node structure, but the markdown syntax like **bold**
- * is still present in the text and needs to be converted.
+ * and [links](url) is still present in the text and needs to be converted.
  */
 function $applyTextFormatsToElementTransformResults(
   root: ElementNode,
   textFormatTransformers: Array<TextFormatTransformer>,
+  textMatchTransformers: Array<TextMatchTransformer> = [],
 ): void {
   const rootChildren = root.getChildren();
+
+  // Helper to apply all text transforms to a collection of text nodes
+  const applyAllTextTransforms = (textNodes: TextNode[]) => {
+    // First apply format transforms (bold, italic, etc.)
+    for (const tn of textNodes) {
+      if (tn.isAttached()) {
+        $applyTextFormatTransformers(tn, textFormatTransformers);
+      }
+    }
+    // Then apply text match transforms (links) - re-collect as nodes may have changed
+    // We need to get fresh nodes from the parent after format transforms
+  };
 
   for (const child of rootChildren) {
     // Skip paragraphs - they're handled in Phase 2 main loop
@@ -469,9 +562,12 @@ function $applyTextFormatsToElementTransformResults(
       for (const listItem of listItems) {
         if ($isListItemNode(listItem)) {
           const textNodes = $collectTextNodes(listItem);
-          for (const tn of textNodes) {
+          applyAllTextTransforms(textNodes);
+          // Apply text match transforms after format transforms
+          const updatedTextNodes = $collectTextNodes(listItem);
+          for (const tn of updatedTextNodes) {
             if (tn.isAttached()) {
-              $applyTextFormatTransformers(tn, textFormatTransformers);
+              $applyTextMatchTransformers(tn, textMatchTransformers);
             }
           }
         }
@@ -481,9 +577,12 @@ function $applyTextFormatsToElementTransformResults(
     // Process heading nodes
     if ($isHeadingNode(child)) {
       const textNodes = $collectTextNodes(child);
-      for (const tn of textNodes) {
+      applyAllTextTransforms(textNodes);
+      // Apply text match transforms after format transforms
+      const updatedTextNodes = $collectTextNodes(child);
+      for (const tn of updatedTextNodes) {
         if (tn.isAttached()) {
-          $applyTextFormatTransformers(tn, textFormatTransformers);
+          $applyTextMatchTransformers(tn, textMatchTransformers);
         }
       }
     }
@@ -491,9 +590,12 @@ function $applyTextFormatsToElementTransformResults(
     // Process quote nodes
     if ($isQuoteNode(child)) {
       const textNodes = $collectTextNodes(child);
-      for (const tn of textNodes) {
+      applyAllTextTransforms(textNodes);
+      // Apply text match transforms after format transforms
+      const updatedTextNodes = $collectTextNodes(child);
+      for (const tn of updatedTextNodes) {
         if (tn.isAttached()) {
-          $applyTextFormatTransformers(tn, textFormatTransformers);
+          $applyTextMatchTransformers(tn, textMatchTransformers);
         }
       }
     }
@@ -542,14 +644,14 @@ export function $insertMarkdownAtSelection(
   // We need the node key and offset to restore position after insertion
   let originalAnchorKey: string | null = null;
   let originalAnchorOffset = 0;
-  let originalFocusKey: string | null = null;
-  let originalFocusOffset = 0;
+  let _originalFocusKey: string | null = null;
+  let _originalFocusOffset = 0;
 
   if (preserveSelection && $isRangeSelection(selection)) {
     originalAnchorKey = selection.anchor.key;
     originalAnchorOffset = selection.anchor.offset;
-    originalFocusKey = selection.focus.key;
-    originalFocusOffset = selection.focus.offset;
+    _originalFocusKey = selection.focus.key;
+    _originalFocusOffset = selection.focus.offset;
   }
 
   // If no selection or root is empty, just replace everything
@@ -586,6 +688,12 @@ export function $insertMarkdownAtSelection(
     ? startNode
     : startNode.getParentOrThrow();
   const startParagraphKey = startParagraph.getKey();
+
+  // IMPORTANT: Track the index where we're inserting for later cursor restoration.
+  // We need to find the last inserted node, not the last node in the document.
+  const insertionStartIndex = root
+    .getChildren()
+    .findIndex((child) => child.getKey() === startParagraph.getKey());
 
   // Track the starting index in the root for cursor restoration
   const startingRootIndex = root
@@ -646,6 +754,13 @@ export function $insertMarkdownAtSelection(
   // Code blocks span multiple paragraphs, so we need special handling
   $applyCodeBlockTransforms(root, createdParagraphKeys);
 
+  // CRITICAL: Clear selection before Phase 2 to prevent "selection has been lost" error.
+  // Phase 2 transformers may replace/remove nodes that the selection points to.
+  // If we don't clear selection here, Lexical's reconciler will throw:
+  // "selection has been lost because the previously selected nodes have been removed"
+  // We'll restore selection in Phase 3 after all transformations are complete.
+  $setSelection(null);
+
   // PHASE 2: Apply transformers to created paragraphs
   // We iterate through the root children to find our paragraphs
   const rootChildren = root.getChildren();
@@ -662,11 +777,18 @@ export function $insertMarkdownAtSelection(
     const elementApplied = $applyElementTransformers(child, byType.element);
 
     if (!elementApplied && child.isAttached()) {
-      // If no element transformer was applied, apply text format transformers
+      // If no element transformer was applied, apply text format and text match transformers
       const textNodes = child.getChildren().filter($isTextNode);
       for (const tn of textNodes) {
         if (tn.isAttached()) {
           $applyTextFormatTransformers(tn, byType.textFormat);
+        }
+      }
+      // Apply text match transformers (like LINK) - must re-get text nodes as format transforms may have changed them
+      const updatedTextNodes = child.getChildren().filter($isTextNode);
+      for (const tn of updatedTextNodes) {
+        if (tn.isAttached()) {
+          $applyTextMatchTransformers(tn, byType.textMatch);
         }
       }
     }
@@ -678,27 +800,45 @@ export function $insertMarkdownAtSelection(
 
   // PHASE 2b: Apply text format transforms to nodes created by element transforms
   // This handles bold/italic inside lists, headings, and quotes
-  $applyTextFormatsToElementTransformResults(root, byType.textFormat);
+  $applyTextFormatsToElementTransformResults(
+    root,
+    byType.textFormat,
+    byType.textMatch,
+  );
 
   // PHASE 3: Cursor position handling
-  // When preserveSelection is true, we skip moving the cursor entirely.
-  // This prevents focus from shifting to a background/hidden editor.
+  // We cleared selection before Phase 2, so we MUST restore it to a valid node.
+  // When preserveSelection is true, we try to restore to the original position
+  // (or as close as possible). When false, we move cursor to end of inserted content.
   if (preserveSelection) {
-    // Skip cursor restoration - leave selection as-is after content insertion.
-    // The content has been added but we don't call select() which would
-    // trigger focus events and potentially steal focus from another editor.
-    //
-    // Note: The original selection captured at the start is no longer valid
-    // because insertion has modified the document structure. We simply
-    // don't update the selection at all, which is the safest approach.
+    // For preserveSelection mode (background editors), we need to set selection
+    // to a valid node but avoid triggering focus. Try to restore original position.
+    // Since we cleared selection earlier, we can't leave it null.
+    try {
+      // Try to find the original anchor node or a node near it
+      if (originalAnchorKey) {
+        const anchorNode = $getNodeByKey(originalAnchorKey);
+        if (anchorNode && $isTextNode(anchorNode) && anchorNode.isAttached()) {
+          const textLen = anchorNode.getTextContent().length;
+          const safeOffset = Math.min(originalAnchorOffset, textLen);
+          anchorNode.select(safeOffset, safeOffset);
+          return;
+        }
+      }
+      // Fallback: select end of first child (least intrusive)
+      const firstChild = root.getFirstChild();
+      if (firstChild && 'selectStart' in firstChild) {
+        (firstChild as ElementNode).selectStart();
+      }
+    } catch (_e) {
+      // If all else fails, just select root start
+      root.selectStart();
+    }
 
-    // Suppress unused variable warnings for tracking vars used in debugging
+    // Suppress unused variable warnings
     void startParagraphKey;
     void startingRootIndex;
-    void originalAnchorKey;
-    void originalAnchorOffset;
-    void originalFocusKey;
-    void originalFocusOffset;
+    void insertionStartIndex;
     return;
   }
 
@@ -777,6 +917,7 @@ export function $insertMarkdownAtSelection(
   // Suppress unused variable warnings for tracking vars used in debugging
   void startParagraphKey;
   void startingRootIndex;
+  void insertionStartIndex;
 }
 
 /**

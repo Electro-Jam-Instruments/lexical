@@ -441,6 +441,27 @@ const customMatchers = [
 <AccessibilityAutoLinkPlugin matchers={customMatchers} />
 ```
 
+### Troubleshooting AutoLink
+
+**URLs not converting to links?**
+
+1. **Check node registration** - Both `AutoLinkNode` AND `LinkNode` must be in your editor's nodes array:
+   ```tsx
+   import { AutoLinkNode, LinkNode } from '@lexical/accessibility';
+
+   const initialConfig = {
+     nodes: [
+       AutoLinkNode,  // Required!
+       LinkNode,      // Required!
+       // ... other nodes
+     ],
+   };
+   ```
+
+2. **Check plugin is mounted** - Ensure `<AccessibilityAutoLinkPlugin />` is inside your `<LexicalComposer>`.
+
+3. **AutoLink only works on typed/pasted bare URLs** - It converts `http://example.com` to a link. For markdown links like `[text](url)`, use paste with markdown support (see below).
+
 ---
 
 ## Markdown Paste Support
@@ -484,6 +505,52 @@ const myTransformers = [
 | `[text](url)` | Link |
 | `---` | Horizontal rule |
 
+### Programmatic Markdown Insertion
+
+When inserting markdown content programmatically (not via paste), use `$insertMarkdownAtSelection`:
+
+```tsx
+import {
+  $insertMarkdownAtSelection,
+  ACCESSIBILITY_TRANSFORMERS,
+} from '@lexical/accessibility';
+
+editor.update(() => {
+  // Position cursor first (optional - content inserts at root if no selection)
+  const lastChild = $getRoot().getLastChild();
+  if (lastChild) {
+    lastChild.selectEnd();
+  }
+
+  // Insert markdown at cursor position
+  $insertMarkdownAtSelection(
+    '# New Heading\n\nSome **bold** text',
+    ACCESSIBILITY_TRANSFORMERS
+  );
+});
+```
+
+#### Cursor Behavior
+
+By default, `$insertMarkdownAtSelection` positions the cursor at the **end of the document** after insertion. This is typically what users expect for interactive editing.
+
+**Options:**
+
+| Option | Default | Cursor Behavior | Use Case |
+|--------|---------|-----------------|----------|
+| `preserveSelection: false` | ✓ | Cursor moves to end of document | Normal user interactions, paste operations |
+| `preserveSelection: true` | | Cursor stays where it was | Background editors, programmatic insertion without focus change |
+
+```typescript
+// Default behavior: cursor at end of document
+$insertMarkdownAtSelection(markdown, transformers);
+
+// Preserve selection: cursor stays in place (for background editors)
+$insertMarkdownAtSelection(markdown, transformers, { preserveSelection: true });
+```
+
+**Note:** As of v0.38.2-a11y.14, `$insertMarkdownAtSelection` automatically handles selection management internally. You no longer need to manually restore selection after calling this function.
+
 ---
 
 ## Suppressing Announcements
@@ -519,7 +586,7 @@ When you have multiple editors in your application and need to programmatically 
 
 ### The Problem
 
-Normally, when you insert markdown content using `$insertMarkdownAtSelection`, the function moves the cursor to the end of the inserted content. This cursor movement can:
+Normally, when you insert markdown content using `$insertMarkdownAtSelection`, the function moves the cursor to the end of the document. This cursor movement can:
 1. Trigger focus events that shift focus to the hidden editor
 2. Cause screen readers to announce the new cursor position
 3. Disrupt the user's workflow in the currently focused editor
