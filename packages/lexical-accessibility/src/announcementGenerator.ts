@@ -248,3 +248,54 @@ export function mergeFormatAnnouncements(announcements: string[]): string {
 
   return `${allButLast.join(', ')} and ${last}`;
 }
+
+/**
+ * Generates announcement for link creation/removal
+ */
+export function generateLinkAnnouncement(
+  created: boolean,
+  verbosity: Verbosity,
+  url?: string,
+): string {
+  // Extract domain or readable portion from URL for verbose announcements
+  const getReadableUrl = (fullUrl: string): string => {
+    try {
+      // Handle mailto: links
+      if (fullUrl.startsWith('mailto:')) {
+        return fullUrl.replace('mailto:', '');
+      }
+      // Extract domain from URL
+      const urlObj = new URL(fullUrl);
+      return urlObj.hostname.replace(/^www\./, '');
+    } catch {
+      // If URL parsing fails, return as-is but truncate if too long
+      return fullUrl.length > 30 ? fullUrl.substring(0, 30) + '...' : fullUrl;
+    }
+  };
+
+  if (created) {
+    switch (verbosity) {
+      case 'minimal':
+        return 'Link';
+      case 'standard':
+        return 'Linked';
+      case 'verbose':
+        return url ? `Linked: ${getReadableUrl(url)}` : 'Linked';
+      default:
+        return 'Linked';
+    }
+  } else {
+    switch (verbosity) {
+      case 'minimal':
+        return 'Unlink';
+      case 'standard':
+        return 'Removed link';
+      case 'verbose':
+        return url
+          ? `Removed link from: ${getReadableUrl(url)}`
+          : 'Removed link';
+      default:
+        return 'Removed link';
+    }
+  }
+}

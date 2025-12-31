@@ -6,8 +6,14 @@
  *
  */
 
+import type {AccessibilityConfig} from './types';
+
 import {AutoLinkPlugin} from '@lexical/react/LexicalAutoLinkPlugin';
 import * as React from 'react';
+import {useCallback, useRef} from 'react';
+
+import {AccessibilityLiveRegion} from './AccessibilityLiveRegion';
+import {generateLinkAnnouncement} from './announcementGenerator';
 
 /**
  * URL regex pattern that matches:
@@ -93,6 +99,14 @@ export interface AccessibilityAutoLinkPluginProps {
    * Custom matchers to use. Defaults to URL and email matchers.
    */
   matchers?: LinkMatcher[];
+  /**
+   * Verbosity level for announcements. Defaults to 'standard'.
+   */
+  verbosity?: AccessibilityConfig['verbosity'];
+  /**
+   * Whether to announce link changes. Defaults to true.
+   */
+  announceLinks?: boolean;
 }
 
 /**
@@ -100,6 +114,7 @@ export interface AccessibilityAutoLinkPluginProps {
  *
  * Automatically converts bare URLs and email addresses into links.
  * Works with pasted content and typed text.
+ * Announces link creation and removal to screen readers.
  *
  * @example
  * ```tsx
@@ -110,10 +125,57 @@ export interface AccessibilityAutoLinkPluginProps {
  *
  * // Or provide custom matchers
  * <AccessibilityAutoLinkPlugin matchers={myCustomMatchers} />
+ *
+ * // Control verbosity
+ * <AccessibilityAutoLinkPlugin verbosity="verbose" />
  * ```
  */
 export function AccessibilityAutoLinkPlugin({
   matchers = DEFAULT_LINK_MATCHERS,
+  verbosity = 'standard',
+  announceLinks = true,
 }: AccessibilityAutoLinkPluginProps): React.ReactElement {
-  return <AutoLinkPlugin matchers={matchers} />;
+  const [announcement, setAnnouncement] = React.useState<string>('');
+  const lastAnnouncementRef = useRef<string>('');
+
+  const handleChange = useCallback(
+    (url: string | null, prevUrl: string | null) => {
+      if (!announceLinks) {
+        return;
+      }
+
+      let message: string | null = null;
+
+      if (url !== null && prevUrl === null) {
+        // Link created
+        message = generateLinkAnnouncement(true, verbosity, url);
+      } else if (url === null && prevUrl !== null) {
+        // Link removed
+        message = generateLinkAnnouncement(false, verbosity, prevUrl);
+      }
+      // If both are non-null, it's a URL change - we could announce that too
+      // but for now we'll skip it as it's less common
+
+      if (message) {
+        // Force re-announcement if same message
+        if (message === lastAnnouncementRef.current) {
+          setAnnouncement('');
+          requestAnimationFrame(() => {
+            setAnnouncement(message);
+          });
+        } else {
+          setAnnouncement(message);
+        }
+        lastAnnouncementRef.current = message;
+      }
+    },
+    [announceLinks, verbosity],
+  );
+
+  return (
+    <>
+      <AutoLinkPlugin matchers={matchers} onChange={handleChange} />
+      {announceLinks && <AccessibilityLiveRegion announcement={announcement} />}
+    </>
+  );
 }

@@ -36,6 +36,7 @@ export {
   generateFormatAnnouncement,
   generateHeadingAnnouncement,
   generateIndentAnnouncement,
+  generateLinkAnnouncement,
   generateListAnnouncement,
   mergeFormatAnnouncements,
 } from './announcementGenerator';
