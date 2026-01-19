@@ -84,6 +84,7 @@ declare export function positionNodeOnRange(
 ): () => void;
 declare export function selectionAlwaysOnDisplay(
   editor: LexicalEditor,
+  onReposition?: (node: Array<HTMLElement>) => void,
 ): () => void;
 declare export function $getNearestBlockElementAncestorOrThrow(
   startNode: LexicalNode,
@@ -132,7 +133,7 @@ declare export function $splitNode(
   offset: number,
 ): [ElementNode | null, ElementNode];
 
-declare export function calculateZoomLevel(element: Element | null): number;
+declare export function calculateZoomLevel(element: Element | null, useManualZoom?: boolean): number;
 
 declare export function $isEditorIsNestedEditor(editor: LexicalEditor): boolean;
 
