@@ -603,7 +603,7 @@ export function $handleListInsertParagraph(): boolean {
     // This prevents screen readers (NVDA) from announcing "out of list" because
     // $handleOutdent modifies nodes in place rather than destroying/recreating them.
     // This makes Enter behave consistently with Backspace for empty nested list items.
-    $handleOutdent(anchor);
+    $handleOutdent(listItem);
     return true;
   } else {
     return false;
