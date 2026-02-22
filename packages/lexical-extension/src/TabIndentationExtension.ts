@@ -6,12 +6,16 @@
  *
  */
 
-import type {LexicalCommand, LexicalEditor, RangeSelection} from 'lexical';
+import type {
+  ElementNode,
+  LexicalCommand,
+  LexicalEditor,
+  RangeSelection,
+} from 'lexical';
 
 import {
-  $filter,
   $getNearestBlockElementAncestorOrThrow,
-  mergeRegister,
+  $handleIndentAndOutdent,
 } from '@lexical/utils';
 import {
   $createRangeSelection,
@@ -25,6 +29,7 @@ import {
   INDENT_CONTENT_COMMAND,
   INSERT_TAB_COMMAND,
   KEY_TAB_COMMAND,
+  mergeRegister,
   OUTDENT_CONTENT_COMMAND,
   safeCast,
 } from 'lexical';
@@ -35,12 +40,9 @@ import {effect, type ReadonlySignal} from './signals';
 function $indentOverTab(selection: RangeSelection): boolean {
   // const handled = new Set();
   const nodes = selection.getNodes();
-  const canIndentBlockNodes = $filter(nodes, (node) => {
-    if ($isBlockElementNode(node) && node.canIndent()) {
-      return node;
-    }
-    return null;
-  });
+  const canIndentBlockNodes = nodes.filter(
+    (node) => $isBlockElementNode(node) && node.canIndent(),
+  );
   // 1. If selection spans across canIndent block nodes: indent
   if (canIndentBlockNodes.length > 0) {
     return true;
@@ -65,9 +67,18 @@ function $indentOverTab(selection: RangeSelection): boolean {
   return false;
 }
 
+export type CanIndentPredicate = (node: ElementNode) => boolean;
+
+function $defaultCanIndent(node: ElementNode) {
+  return node.canBeEmpty();
+}
+
 export function registerTabIndentation(
   editor: LexicalEditor,
   maxIndent?: number | ReadonlySignal<null | number>,
+  $canIndent:
+    | CanIndentPredicate
+    | ReadonlySignal<CanIndentPredicate> = $defaultCanIndent,
 ) {
   return mergeRegister(
     editor.registerCommand<KeyboardEvent>(
@@ -98,22 +109,22 @@ export function registerTabIndentation(
               ? maxIndent.peek()
               : null;
 
-        if (currentMaxIndent == null) {
-          return false;
-        }
-
         const selection = $getSelection();
         if (!$isRangeSelection(selection)) {
           return false;
         }
 
-        const indents = selection
-          .getNodes()
-          .map((node) =>
-            $getNearestBlockElementAncestorOrThrow(node).getIndent(),
-          );
+        const $currentCanIndent =
+          typeof $canIndent === 'function' ? $canIndent : $canIndent.peek();
 
-        return Math.max(...indents) + 1 >= currentMaxIndent;
+        return $handleIndentAndOutdent((block) => {
+          if ($currentCanIndent(block)) {
+            const newIndent = block.getIndent() + 1;
+            if (!currentMaxIndent || newIndent < currentMaxIndent) {
+              block.setIndent(newIndent);
+            }
+          }
+        });
       },
       COMMAND_PRIORITY_CRITICAL,
     ),
@@ -123,6 +134,11 @@ export function registerTabIndentation(
 export interface TabIndentationConfig {
   disabled: boolean;
   maxIndent: null | number;
+  /**
+   * By default, indents are set on all elements for which the {@link ElementNode.canIndent} returns true.
+   * This option allows you to set indents for specific nodes without overriding the method for others.
+   */
+  $canIndent: CanIndentPredicate;
 }
 
 /**
@@ -134,13 +150,17 @@ export const TabIndentationExtension = defineExtension({
   build(editor, config, state) {
     return namedSignals(config);
   },
-  config: safeCast<TabIndentationConfig>({disabled: false, maxIndent: null}),
+  config: safeCast<TabIndentationConfig>({
+    $canIndent: $defaultCanIndent,
+    disabled: false,
+    maxIndent: null,
+  }),
   name: '@lexical/extension/TabIndentation',
   register(editor, config, state) {
-    const {disabled, maxIndent} = state.getOutput();
+    const {disabled, maxIndent, $canIndent} = state.getOutput();
     return effect(() => {
       if (!disabled.value) {
-        return registerTabIndentation(editor, maxIndent);
+        return registerTabIndentation(editor, maxIndent, $canIndent);
       }
     });
   },

@@ -25,6 +25,7 @@ import {
   $getCaretRange,
   $getCaretRangeInDirection,
   $getNodeByKey,
+  $getRoot,
   $getSelection,
   $getSiblingCaret,
   $getTextPointCaret,
@@ -858,14 +859,23 @@ export function registerCodeHighlighting(
       KEY_ARROW_UP_COMMAND,
       (event) => {
         const selection = $getSelection();
-        if (!$isRangeSelection(selection)) {
+        if (!$isRangeSelection(selection) || !$isSelectionInCode(selection)) {
           return false;
         }
-        if (!$isSelectionInCode(selection)) {
+        // Upstream fix: allow default behavior when cursor is at the very first node
+        // (so arrow up can leave the code block at the top of the document)
+        const firstNode = $getRoot().getFirstDescendant();
+        const {anchor} = selection;
+        const anchorNode = anchor.getNode();
+        if (
+          firstNode &&
+          anchorNode &&
+          firstNode.getKey() === anchorNode.getKey()
+        ) {
           return false;
         }
         // ACCESSIBILITY FIX: Allow arrow keys to exit code blocks at boundaries
-        // Moved boundary handling to $handleShiftLines for consistent behavior
+        // Additional boundary handling in $handleShiftLines for consistent behavior
         return $handleShiftLines(KEY_ARROW_UP_COMMAND, event);
       },
       COMMAND_PRIORITY_LOW,
@@ -874,14 +884,23 @@ export function registerCodeHighlighting(
       KEY_ARROW_DOWN_COMMAND,
       (event) => {
         const selection = $getSelection();
-        if (!$isRangeSelection(selection)) {
+        if (!$isRangeSelection(selection) || !$isSelectionInCode(selection)) {
           return false;
         }
-        if (!$isSelectionInCode(selection)) {
+        // Upstream fix: allow default behavior when cursor is at the very last node
+        // (so arrow down can leave the code block at the bottom of the document)
+        const lastNode = $getRoot().getLastDescendant();
+        const {anchor: anchorDown} = selection;
+        const anchorNodeDown = anchorDown.getNode();
+        if (
+          lastNode &&
+          anchorNodeDown &&
+          lastNode.getKey() === anchorNodeDown.getKey()
+        ) {
           return false;
         }
         // ACCESSIBILITY FIX: Allow arrow keys to exit code blocks at boundaries
-        // Moved boundary handling to $handleShiftLines for consistent behavior
+        // Additional boundary handling in $handleShiftLines for consistent behavior
         return $handleShiftLines(KEY_ARROW_DOWN_COMMAND, event);
       },
       COMMAND_PRIORITY_LOW,

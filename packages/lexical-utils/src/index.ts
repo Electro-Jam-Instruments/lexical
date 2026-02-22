@@ -63,20 +63,21 @@ import {
   IS_SAFARI as IS_SAFARI_,
 } from 'shared/environment';
 import invariant from 'shared/invariant';
-import normalizeClassNames from 'shared/normalizeClassNames';
 
 export {default as markSelection} from './markSelection';
-export {default as mergeRegister} from './mergeRegister';
 export {default as positionNodeOnRange} from './positionNodeOnRange';
 export {default as selectionAlwaysOnDisplay} from './selectionAlwaysOnDisplay';
 export {
   $findMatchingParent,
   $getAdjacentSiblingOrParentSiblingCaret,
   $splitNode,
+  addClassNamesToElement,
   isBlockDomNode,
   isHTMLAnchorElement,
   isHTMLElement,
   isInlineDomNode,
+  mergeRegister,
+  removeClassNamesFromElement,
 } from 'lexical';
 // Hotfix to export these with inlined types #5918
 export const CAN_USE_BEFORE_INPUT: boolean = CAN_USE_BEFORE_INPUT_;
@@ -89,42 +90,6 @@ export const IS_CHROME: boolean = IS_CHROME_;
 export const IS_FIREFOX: boolean = IS_FIREFOX_;
 export const IS_IOS: boolean = IS_IOS_;
 export const IS_SAFARI: boolean = IS_SAFARI_;
-
-/**
- * Takes an HTML element and adds the classNames passed within an array,
- * ignoring any non-string types. A space can be used to add multiple classes
- * eg. addClassNamesToElement(element, ['element-inner active', true, null])
- * will add both 'element-inner' and 'active' as classes to that element.
- * @param element - The element in which the classes are added
- * @param classNames - An array defining the class names to add to the element
- */
-export function addClassNamesToElement(
-  element: HTMLElement,
-  ...classNames: Array<typeof undefined | boolean | null | string>
-): void {
-  const classesToAdd = normalizeClassNames(...classNames);
-  if (classesToAdd.length > 0) {
-    element.classList.add(...classesToAdd);
-  }
-}
-
-/**
- * Takes an HTML element and removes the classNames passed within an array,
- * ignoring any non-string types. A space can be used to remove multiple classes
- * eg. removeClassNamesFromElement(element, ['active small', true, null])
- * will remove both the 'active' and 'small' classes from that element.
- * @param element - The element in which the classes are removed
- * @param classNames - An array defining the class names to remove from the element
- */
-export function removeClassNamesFromElement(
-  element: HTMLElement,
-  ...classNames: Array<typeof undefined | boolean | null | string>
-): void {
-  const classesToRemove = normalizeClassNames(...classNames);
-  if (classesToRemove.length > 0) {
-    element.classList.remove(...classesToRemove);
-  }
-}
 
 /**
  * Returns true if the file type matches the types passed within the acceptableMimeTypes array, false otherwise.
@@ -631,6 +596,8 @@ export function objectKlassEquals<T>(
 }
 
 /**
+ * @deprecated Use Array filter or flatMap
+ *
  * Filter the nodes
  * @param nodes Array of nodes that needs to be filtered
  * @param filterFn A filter function that returns node if the current node satisfies the condition otherwise null
@@ -650,6 +617,46 @@ export function $filter<T>(
   }
   return result;
 }
+
+/**
+ * Applies the provided callback to each indentable block element in the Selection
+ *
+ * @param indentOrOutdent callback for performing the indent or outdent action
+ * on a given block element.
+ * @returns true if at least one block was handled, false otherwise.
+ */
+export function $handleIndentAndOutdent(
+  indentOrOutdent: (block: ElementNode) => void,
+): boolean {
+  const selection = $getSelection();
+  if (!$isRangeSelection(selection)) {
+    return false;
+  }
+  const alreadyHandled = new Set();
+  const nodes = selection.getNodes();
+  for (let i = 0; i < nodes.length; i++) {
+    const node = nodes[i];
+    const key = node.getKey();
+    if (alreadyHandled.has(key)) {
+      continue;
+    }
+    const parentBlock = $findMatchingParent(
+      node,
+      (parentNode): parentNode is ElementNode =>
+        $isElementNode(parentNode) && !parentNode.isInline(),
+    );
+    if (parentBlock === null) {
+      continue;
+    }
+    const parentKey = parentBlock.getKey();
+    if (parentBlock.canIndent() && !alreadyHandled.has(parentKey)) {
+      alreadyHandled.add(parentKey);
+      indentOrOutdent(parentBlock);
+    }
+  }
+  return alreadyHandled.size > 0;
+}
+
 /**
  * Appends the node before the first child of the parent node
  * @param parent A parent node
