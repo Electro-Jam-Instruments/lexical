@@ -38,10 +38,10 @@
     }
   },
   "dependencies": {
-    "@lexical/react": "workspace:*",
-    "@lexical/rich-text": "workspace:*",
-    "@lexical/utils": "workspace:*",
-    "lexical": "workspace:*"
+    "@lexical/react": "0.40.0",
+    "@lexical/rich-text": "0.40.0",
+    "@lexical/utils": "0.40.0",
+    "lexical": "0.40.0"
   },
   "peerDependencies": {
     "react": ">=18.0.0",
