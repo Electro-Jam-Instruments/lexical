@@ -69,6 +69,7 @@ import {
   REDO_COMMAND,
   REMOVE_TEXT_COMMAND,
   SELECTION_CHANGE_COMMAND,
+  SKIP_DOM_SELECTION_TAG,
   UNDO_COMMAND,
 } from '.';
 import {
@@ -1215,9 +1216,18 @@ function $handleKeyDown(event: KeyboardEvent): boolean {
   } else if (isMoveToStart(event)) {
     dispatchCommand(editor, MOVE_TO_START, event);
   } else if (isMoveUp(event)) {
-    dispatchCommand(editor, KEY_ARROW_UP_COMMAND, event);
+    // ACCESSIBILITY: When no handler claims the arrow key (returns false),
+    // the browser will handle cursor movement natively. Tag the update to
+    // skip DOM selection reconciliation so Lexical doesn't write the OLD
+    // selection back to DOM via microtask, causing a cursor "bounce" that
+    // confuses screen readers like NVDA.
+    if (!dispatchCommand(editor, KEY_ARROW_UP_COMMAND, event)) {
+      $addUpdateTag(SKIP_DOM_SELECTION_TAG);
+    }
   } else if (isMoveDown(event)) {
-    dispatchCommand(editor, KEY_ARROW_DOWN_COMMAND, event);
+    if (!dispatchCommand(editor, KEY_ARROW_DOWN_COMMAND, event)) {
+      $addUpdateTag(SKIP_DOM_SELECTION_TAG);
+    }
   } else if (isLineBreak(event)) {
     isInsertLineBreak = true;
     dispatchCommand(editor, KEY_ENTER_COMMAND, event);
