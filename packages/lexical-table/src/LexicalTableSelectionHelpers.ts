@@ -2055,10 +2055,15 @@ function $handleArrowKey(
         edgeSelectionRect = range.getBoundingClientRect();
       }
 
+      // ACCESSIBILITY: Use getFirstDescendant/getLastDescendant instead of
+      // getFirstChild/getLastChild so the rect comparison is against the
+      // actual text-level element, not a container (e.g. ListNode wrapping
+      // ListItemNodes). This prevents false positives in the isExiting check
+      // when cells contain nested content like lists or code blocks.
       const edgeChild =
         direction === 'up'
-          ? anchorCellNode.getFirstChild()
-          : anchorCellNode.getLastChild();
+          ? anchorCellNode.getFirstDescendant()
+          : anchorCellNode.getLastDescendant();
       if (edgeChild == null) {
         return false;
       }

@@ -21,6 +21,7 @@ import {
   $isTextNode,
   $setSelection,
 } from '.';
+import {isNativeArrowKeyMovement} from './LexicalEvents';
 import {updateEditorSync} from './LexicalUpdates';
 import {
   $getNodeByKey,
@@ -290,7 +291,15 @@ function flushMutations(
       }
 
       if (selection !== null) {
-        if (shouldRevertSelection) {
+        // ACCESSIBILITY: During native arrow key navigation, do NOT revert
+        // selection. The MutationObserver may see childList mutations from
+        // transforms (e.g., list plugin syncing format to ListItemNode),
+        // but reverting selection here would undo the browser's native
+        // cursor placement, causing the cursor to bounce back.
+        // The isNativeArrowKeyMovement() flag is cleared via setTimeout(0)
+        // at the end of the event loop, so it's still set when this
+        // microtask-scheduled MutationObserver callback fires.
+        if (shouldRevertSelection && !isNativeArrowKeyMovement()) {
           $setSelection(selection);
         }
 

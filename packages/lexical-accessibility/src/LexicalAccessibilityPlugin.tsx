@@ -44,8 +44,12 @@ import {
   generateFormatAnnouncement,
   generateIndentAnnouncement,
 } from './announcementGenerator';
-import {setIsDeleteKeyOperation} from './deleteKeyState';
 import {$insertMarkdownAtSelection} from './markdownUtils';
+import {
+  clearPendingOperation,
+  getPendingOperation,
+  setPendingOperation,
+} from './pendingOperationState';
 import {setSuppressingAnnouncements} from './suppressionState';
 import {ACCESSIBILITY_TRANSFORMERS} from './transformers';
 import {
@@ -263,14 +267,11 @@ export function AccessibilityPlugin({
     // Track DELETE key presses so emoji deletion can differentiate
     // DELETE key needs our announcement (screen reader says "blank")
     // Backspace doesn't need it (screen reader announces the character)
+    // The flag is cleared in the update listener after the operation completes.
     const unregisterDelete = editor.registerCommand(
       KEY_DELETE_COMMAND,
       () => {
-        setIsDeleteKeyOperation(true);
-        // Clear the flag after mutation listeners have fired
-        setTimeout(() => {
-          setIsDeleteKeyOperation(false);
-        }, 50);
+        setPendingOperation('delete');
         return false;
       },
       COMMAND_PRIORITY_LOW,
@@ -306,22 +307,12 @@ export function AccessibilityPlugin({
               }
 
               // After Enter, we'll be on the next line (which is blank)
+              // Store the line number - announcement happens in update listener
+              // when we can verify we're still in a code block
               const newLineNumber = lineNumber + 1;
-              setTimeout(() => {
-                // Only announce if we're still in a code block
-                // (Enter at end of code block exits, handled by update listener)
-                editor.getEditorState().read(() => {
-                  if ($isInsideCodeBlock()) {
-                    // Announce based on verbosity level
-                    if (mergedConfig.verbosity === 'minimal') {
-                      announce('Blank');
-                    } else {
-                      // default and verbose
-                      announce(`Blank, line ${newLineNumber}`);
-                    }
-                  }
-                });
-              }, 10);
+              setPendingOperation('enter-code-block', {
+                codeBlockLineNumber: newLineNumber,
+              });
             }
             return false;
           }
@@ -340,10 +331,9 @@ export function AccessibilityPlugin({
             const indentLevel = listItemNode.getIndent();
 
             if (isEmpty && indentLevel > 0) {
+              // Flag is cleared in update listener after the operation completes
               isEnterOnEmptyRef.current = true;
-              setTimeout(() => {
-                isEnterOnEmptyRef.current = false;
-              }, 50);
+              setPendingOperation('enter-empty-list-item');
             }
           }
         }
@@ -367,14 +357,11 @@ export function AccessibilityPlugin({
       INDENT_CONTENT_COMMAND,
       () => {
         isIndentOperationRef.current = true;
+        setPendingOperation('indent');
 
         const currentLevel = $getSelectedListItemLevel();
         const newLevel =
           currentLevel !== undefined ? currentLevel + 1 : undefined;
-
-        setTimeout(() => {
-          isIndentOperationRef.current = false;
-        }, 50);
 
         if (mergedConfig.announceStructural) {
           const message = generateIndentAnnouncement(
@@ -393,16 +380,13 @@ export function AccessibilityPlugin({
       OUTDENT_CONTENT_COMMAND,
       () => {
         isIndentOperationRef.current = true;
+        setPendingOperation('outdent');
 
         const currentLevel = $getSelectedListItemLevel();
         const newLevel =
           currentLevel !== undefined
             ? Math.max(0, currentLevel - 1)
             : undefined;
-
-        setTimeout(() => {
-          isIndentOperationRef.current = false;
-        }, 50);
 
         if (mergedConfig.announceStructural) {
           const message = generateIndentAnnouncement(
@@ -529,8 +513,43 @@ export function AccessibilityPlugin({
       ({editorState, dirtyLeaves, tags}) => {
         // Skip all announcements if suppress tag is present
         if (tags.has(SUPPRESS_A11Y_ANNOUNCEMENTS_TAG)) {
+          clearPendingOperation();
           return;
         }
+
+        // Handle pending operations from command handlers.
+        // This replaces setTimeout-based flag clearing with proper event-driven sync.
+        // The update listener fires AFTER Lexical has processed the command,
+        // so we can safely read the updated state and clear operation flags.
+        const pendingOp = getPendingOperation();
+
+        editorState.read(() => {
+          // Process pending Enter in code block - announce line number
+          if (pendingOp.type === 'enter-code-block') {
+            // Only announce if we're still in a code block
+            // (Enter at end of code block exits, handled by transition detection below)
+            if ($isInsideCodeBlock() && pendingOp.codeBlockLineNumber) {
+              if (mergedConfig.verbosity === 'minimal') {
+                announce('Blank');
+              } else {
+                announce(`Blank, line ${pendingOp.codeBlockLineNumber}`);
+              }
+            }
+          }
+
+          // Process pending Enter on empty list item - clear the ref flag
+          if (pendingOp.type === 'enter-empty-list-item') {
+            isEnterOnEmptyRef.current = false;
+          }
+
+          // Process pending indent/outdent - clear the ref flag
+          if (pendingOp.type === 'indent' || pendingOp.type === 'outdent') {
+            isIndentOperationRef.current = false;
+          }
+        });
+
+        // Clear pending operation now that we've processed it
+        clearPendingOperation();
 
         // Track code block and inline code enter/exit via update listener
         // SELECTION_CHANGE_COMMAND doesn't fire reliably inside code blocks

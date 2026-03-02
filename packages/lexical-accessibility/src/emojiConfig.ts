@@ -13,11 +13,11 @@ import type {
 } from './nodeConfigTypes';
 import type {Klass, TextNode} from 'lexical';
 
-import {getIsDeleteKeyOperation} from './deleteKeyState';
 import {
   generateEmojiCreationAnnouncement,
   generateEmojiDeletionAnnouncement,
 } from './emojiAnnouncementGenerator';
+import {getIsDeleteKeyOperation} from './pendingOperationState';
 
 export interface EmojiMetadata extends NodeMetadata {
   nodeType: 'emoji';
@@ -99,12 +99,11 @@ export function createEmojiConfig<T extends EmojiNodeLike>(
       const emojiMeta = metadata as EmojiMetadata;
       const now = Date.now();
 
-      // Track destruction time to suppress spurious creation announcements
+      // Track destruction time to suppress spurious creation announcements.
+      // The map is cleaned up lazily - entries older than DESTRUCTION_DEBOUNCE_MS
+      // are ignored in onCreated, so we don't need to actively delete them.
+      // This avoids setTimeout entirely while still working correctly.
       recentlyDestroyed.set(emojiMeta.emoji, now);
-      // Clean up old entries after debounce window
-      setTimeout(() => {
-        recentlyDestroyed.delete(emojiMeta.emoji);
-      }, DESTRUCTION_DEBOUNCE_MS + 50);
 
       // Check if this emoji was JUST created (within debounce window)
       // This handles undo right after creation - we don't want both announcements

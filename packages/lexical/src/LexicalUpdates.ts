@@ -600,13 +600,20 @@ export function $commitPendingUpdates(
   const deferred = editor._deferred;
   const nodeCount = pendingEditorState._nodeMap.size;
 
+  // ACCESSIBILITY FIX: Always clear tags after capturing them into the local
+  // `tags` variable. Previously, tags were only cleared when needsUpdate=true.
+  // When needsUpdate=false (selection-only changes with no dirty nodes), stale
+  // tags like SKIP_DOM_SELECTION_TAG would leak into subsequent update cycles,
+  // causing incorrect behavior (e.g., blocking needed DOM selection writes on
+  // the next user interaction).
+  editor._updateTags = new Set();
+
   if (needsUpdate) {
     editor._dirtyType = NO_DIRTY_NODES;
     editor._cloneNotNeeded.clear();
     editor._dirtyLeaves = new Set();
     editor._dirtyElements = new Map();
     editor._normalizedNodes = new Set();
-    editor._updateTags = new Set();
   }
   $garbageCollectDetachedDecorators(editor, pendingEditorState);
 
