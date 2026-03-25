@@ -1,3 +1,99 @@
+## v0.42.0 (2026-03-19)
+
+- lexical-table Bug Fix handle table selections crossing intoout of nested tables (#8234) Randal
+- lexical-link Feature  Merge adjacent LinkNodes with identical attributes (#8236) Achal Jhawar
+- build(deps) bump next from 15.5.11 to 16.1.7 in scriptstestsintegrationfixtureslexical-esm-nextjs (#8232) dependabotbot
+- lexical-rich-text Bug Fix use writable node in HeadingNode.setTag (#8235) Karesansui
+- lexical-devtools-core Bug Fix Clean up strict mode useLexicalCommandsLog behavior (#8230) Bob Ippolito
+- lexical-playground Chore Remove unused code from playground TablePlugin (#8231) Bob Ippolito
+- lexical-extensionlexical-react Feature LexicalExtensionEditorComposer, NestedEditorExtension, and fixed SharedHistoryExtension with playground refactor (#8202) Bob Ippolito
+- lexical-codelexical-marklexical-reactlexical-tablelexical-rich-textlexical-link Bug Fix Add and fix afterCloneFrom implementations (#8229) Bob Ippolito
+- lexical-playground Bug fix make clear formatting work on multiple paragraphs (#8224) Piotr Dbrowski
+- lexical-eslint-plugin Chore update lexicaleslint-plugin for better eslint 9 support, finish jest to vitest migration (#8227) Bob Ippolito
+- lexical Fix Fixing cursor position after inline equation, fix block equations (#8228) Ajinkya Nikam
+- lexical-link Refactor add afterCloneFrom method to LinkNodeAutoLinkNode (#8226) Sergey Gorbachev
+- lexical-list Fix create copies ListNodeListItemNode in split-like operations (#8213) Sergey Gorbachev
+- lexical-website Fix Correct the mistake in the argument in the example on the Updates page (#8225) Sergey Gorbachev
+- lexical-tablelexical-playground Breaking change Move hasFitNestedTables logic to Playground plugin (#8210) Randal
+- lexical Fix Consecutive Linebreak insertion resets selection format (#8222) Ajinkya Nikam
+- lexical-markdownlexical-playground Bug Fix Convert tabs in TabNode at import (#8211) Simon
+- lexical Feature LexicalEditor RootListener and EditableListener can return unregister callbacks (#8219) Bob Ippolito
+- lexicallexical-listlexical-markdown Feature resetOnCopyNode configuration to NodeState and LexicalNode.resetOnCopyNodeFrom hook (#8221) Bob Ippolito
+- lexical Bug Fix When the editor starts with an empty list item, pressing ctrlbackspace (deleteWord) should replace the list with a paragraph (#8220) Ajinkya Nikam
+- lexical Bug Fix respect CSS scroll-padding in scrollIntoViewIfNeeded (#8218) Takenosuke Nagata
+- lexical-utilslexical-playground Feature Add insertNodeIntoLeaf and insert deeply DateTimeNode (#8206) Sergey Gorbachev
+- lexical-table Chore add test for mouse leaving browser window during table selection (#8215) Takenosuke Nagata
+- lexical-playground Fix use inline style for LayoutContainerNode import (#8214) ByungGyu-Yu
+- lexical-website Bug Fix Removed blog route from lexical.dev (#8209) Matheus SantAnna
+- lexical-table Refactor Call handleTableSelectionChangeCommand once instead of per-table (#8200) Randal
+- lexical-react Revert revert Remove deprecated ContextMenu, consolidate menu rendering with backward-compatible menuRenderFn (#8199) Michael
+- lexical-table Bug Fix Prevent single-cell table selection after exiting table selection (#8195) Randal
+- lexical-code Breaking Change Extract Prism code highlighting to lexicalcode-prism (with internal module lexicalcode-core to avoid circular import) (#8198) Bob Ippolito
+- lexical-table Bug Fix Improve nested table selection by using monolithic pointer event handling (#8193) Randal
+- lexical-markdown Bug Fix update backslash escape handling to align with CommonMark (#8192) kimseongyu
+- lexical-tablelexical-playground Feature nested tables resize themselves if hasFitNestedTables true (#8183) Randal
+- lexical-table Refactor use monolithic listener for table SELECTIONCHANGECOMMAND and deselection handler (#8187) Randal
+- lexical Chore Change alias from type to interface for EditorThemeClasses (#8190) Sergey Gorbachev
+- lexical-playground Chore Remove legacy-events mode (#8188) Sergey Gorbachev
+- lexical-playground Fix add fallback for dimensionless images to prevent collapse (#8186) Sa-Te
+- lexical-link Bug Fix Enable autolink matching when it unlinked (#8165) Sergey Gorbachev
+- Fix rollup CVE-2026-27606 in example project lockfiles (#8182) Michael
+- lexical Chore Fix rollup CVE-2026-27606 across all lockfiles (#8173) Michael
+- lexical Security Fix isaacsbrace-expansion vulnerability (CVE-2026-25547) (#8175) Michael
+- lexical Chore Fix form-data CVE-2025-7783 in root lockfile (#8174) Michael
+- lexical-markdown Fix enforce CommonMark flanking rules for trailing spaces (#8170) Sa-Te
+- lexical Security Fix qs vulnerability (CVE-2025-15284) (#8176) Michael
+- Fix cross-spawn vulnerability (CVE-2024-21538) by removing child-process-promise (#8177) Michael
+- lexical Chore Fix minimatch CVE-2026-26996 in example projects (#8169) Michael
+- Update examples for v0.41.0 (#8171) Bob Ippolito
+- v0.41.0 (#8166) Bob Ippolito
+- v0.41.0 Lexical GitHub Actions Bot
+
+## v0.41.0 (2026-02-25)
+
+- lexical Bug Fix Move new paragraph outside inline element in insertParagraph (#8158) Achal Jhawar
+- lexical-markdown Bug Fix Prevent nesting links creation (#8164) Sergey Gorbachev
+- tests Chore Update yaml-language-server in lexical-esm-astro-react integration fixture (#8163) PikkaPikkachu
+- lexical Bug Fix Maintain format when replace multiple formatted text nodes with composition text (#8162) kimseongyu
+- lexical-markdown Fix Prevent markdown shortcut link transformer from being too greedy (#8161) Bob Ippolito
+- feat add focus event option for the checklist extension (#8105) Tulio
+- lexical Bug Fix Fix selected text not properly deleted after IME input on Safari (macOS) (#8154) Kawashima Shota (shiba)
+-  lexical-core Bug fix support dom selection for elements with slots (#8159) Maksim Horbachevsky
+- lexical-rich-text Bug Fix Inherit format and style when inserting tab (#8152) kimseongyu
+- lexical-playground Bug Fix Code block formatting in unintended adjacent lines  (#8149) Achal Jhawar
+- lexical Bug Fix Do not apply format and style when moving to different node in composition (#8148) kimseongyu
+- lexical-history Bug Fix History not record composing character (#8142) Senasiko
+- lexical-website Chore Add a website build step to Github Actions in CI (#8146) Bob Ippolito
+- docs fix formatting and update browser support table (#8144) IkyssOffc
+- lexical-extension Feature Implement DecoratorTextExtension applying format to DecoratorTextNode (#8114) Sergey Gorbachev
+- lexical-markdown Feature Support Enter key after  to create code block (#8140) Achal Jhawar
+- lexical-link Bug Fix toggleLink removes link when selection is collapsed (#8138) Senasiko
+- lexical-website Chore Update supported browsers list to Safari 15, Chrome 86, Firefox 115 (#8141) Bob Ippolito
+- lexical-playground Clean up old Table Hover Actions (#8139) Ivaylo Pavlov
+- lexical-link Bug Fix Add AutoLinkNode to AutoLinkExtension node dependencies (#8137) Bob Ippolito
+- lexical-playground Fix Increase toolbar z-index to prevent content overlap (#8134) Sa-Te
+- Breaking Changelexical Bug Fix Fix --lexical-indent-base-value CSS variable override  (#8132) Achal Jhawar
+- lexical-code Bug Fix Allow moving caret outside code block (#7918) Simon
+- lexical-table Fix Preserve Background Color when pasting table rows inside table. (#8131) Sa-Te
+- lexical Bug Fix Do not move anchor when inserting composition start char (#8121) kimseongyu
+- lexical-react Annotate deprecated to menuRenderFn  with NodeContext (#8001) Michael
+- lexical-playgroundlexical-link Bug Fix Prevent AutoLinkNode from creating extra paragraphs (#8127) Sebastian
+- lexical-playground Rearrange table columns (#8063) Ivaylo Pavlov
+- lexical-link Bug Fix Prevent AutoLink from linking URLs inside code blocks (#8123) Achal Jhawar
+- lexical-extensionlexical-rich-textlexical-react Feature Support configuration of indentable nodes (#8122) Sergey Gorbachev
+- lexical Bug Fix Remove empty parent node in nested list (#8118) Senasiko
+- lexical-playground tests for ComponentPickerMenuPlugin (#8128) Syed Umar Anis
+- lexical-markdown Bug Fix Fix nested fenced code blocks parsing and export (#8116) Abdul Alim
+- lexical-list Feature Preserve ordered list numbering when split by blocks or paragraphs (#8092) Sa-Te
+- lexical Feature Support legacy align attribute in ParagraphNode importDOM (#8115) Sa-Te
+- Fix(table) Support scope attribute in HTML import. (#8094) Sa-Te
+- lexical Chore Stabilize playground collab WebKit E2E test waits (#8113) Szymon Rczka
+- lexical-tablelexical-playground Feature Implement fit nested tables for nested table pasting (#8097) Randal
+- Update examples for v0.40.0 and pnpm (#8110) Bob Ippolito
+- lexical Bug Fix Prevent layout thrashing when setting element indent for no indent case (#8111) InanBerkin
+- v0.40.0 (#8104) Bob Ippolito
+- v0.40.0 Lexical GitHub Actions Bot
+
 ## v0.40.0 (2026-02-01)
 
 - lexical Bug Fix Refactor RootNode.cachedText computation for coherency (#8099) Bob Ippolito

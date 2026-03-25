@@ -17,7 +17,6 @@ import {
 } from '@lexical/utils';
 import {
   $createParagraphNode,
-  $getEditor,
   $getNearestNodeFromDOMNode,
   $getPreviousSelection,
   $getRoot,
@@ -28,20 +27,20 @@ import {
   $setSelection,
   CLICK_COMMAND,
   COMMAND_PRIORITY_EDITOR,
+  COMMAND_PRIORITY_HIGH,
   COMMAND_PRIORITY_LOW,
   CommandPayloadType,
   ElementNode,
   isDOMNode,
   LexicalEditor,
-  LexicalNode,
   NodeKey,
   RangeSelection,
   SELECT_ALL_COMMAND,
+  SELECTION_CHANGE_COMMAND,
   SELECTION_INSERT_CLIPBOARD_NODES_COMMAND,
 } from 'lexical';
 import invariant from 'shared/invariant';
 
-import {PIXEL_VALUE_REG_EXP} from './constants';
 import {
   $createTableCellNode,
   $isTableCellNode,
@@ -53,7 +52,7 @@ import {
 } from './LexicalTableCommands';
 import {TableConfig} from './LexicalTableExtension';
 import {$isTableNode, TableNode} from './LexicalTableNode';
-import {$getTableAndElementByKey, TableObserver} from './LexicalTableObserver';
+import {$getTableAndElementByKey, TableObservers} from './LexicalTableObserver';
 import {$isTableRowNode, TableRowNode} from './LexicalTableRowNode';
 import {
   $createTableSelectionFrom,
@@ -62,9 +61,10 @@ import {
 } from './LexicalTableSelection';
 import {
   $findTableNode,
+  $handleTableSelectionChangeCommand,
   applyTableHandlers,
   getTableElement,
-  HTMLTableElementWithWithTableSelectionState,
+  registerTableWindowHandlers,
 } from './LexicalTableSelectionHelpers';
 import {
   $computeTableCellRectBoundary,
@@ -72,8 +72,6 @@ import {
   $computeTableMapSkipCellCheck,
   $createTableNodeWithDimensions,
   $getNodeTriplet,
-  $getTableCellNodeRect,
-  $getTableNodeFromLexicalNodeOrThrow,
   $insertTableColumnAtNode,
   $insertTableRowAtNode,
   $mergeCells,
@@ -325,10 +323,7 @@ export function registerTableSelectionObserver(
   editor: LexicalEditor,
   hasTabHandler: boolean = true,
 ): () => void {
-  const tableSelections = new Map<
-    NodeKey,
-    [TableObserver, HTMLTableElementWithWithTableSelectionState]
-  >();
+  const tableObservers = new TableObservers();
 
   const initializeTableNode = (
     tableNode: TableNode,
@@ -341,50 +336,59 @@ export function registerTableSelectionObserver(
       tableElement,
       editor,
       hasTabHandler,
+      tableObservers,
     );
-    tableSelections.set(nodeKey, [tableSelection, tableElement]);
+    tableObservers.observers.set(nodeKey, [tableSelection, tableElement]);
   };
 
-  const unregisterMutationListener = editor.registerMutationListener(
-    TableNode,
-    (nodeMutations) => {
-      editor.getEditorState().read(
-        () => {
-          for (const [nodeKey, mutation] of nodeMutations) {
-            const tableSelection = tableSelections.get(nodeKey);
-            if (mutation === 'created' || mutation === 'updated') {
-              const {tableNode, tableElement} =
-                $getTableAndElementByKey(nodeKey);
-              if (tableSelection === undefined) {
-                initializeTableNode(tableNode, nodeKey, tableElement);
-              } else if (tableElement !== tableSelection[1]) {
-                // The update created a new DOM node, destroy the existing TableObserver
-                tableSelection[0].removeListeners();
-                tableSelections.delete(nodeKey);
-                initializeTableNode(tableNode, nodeKey, tableElement);
-              }
-            } else if (mutation === 'destroyed') {
-              if (tableSelection !== undefined) {
-                tableSelection[0].removeListeners();
-                tableSelections.delete(nodeKey);
+  return mergeRegister(
+    registerTableWindowHandlers(editor, tableObservers),
+    editor.registerCommand(
+      SELECTION_CHANGE_COMMAND,
+      () => {
+        return $handleTableSelectionChangeCommand(tableObservers, editor);
+      },
+      COMMAND_PRIORITY_HIGH,
+    ),
+    editor.registerMutationListener(
+      TableNode,
+      (nodeMutations) => {
+        editor.getEditorState().read(
+          () => {
+            for (const [nodeKey, mutation] of nodeMutations) {
+              const tableSelection = tableObservers.observers.get(nodeKey);
+              if (mutation === 'created' || mutation === 'updated') {
+                const {tableNode, tableElement} =
+                  $getTableAndElementByKey(nodeKey);
+                if (tableSelection === undefined) {
+                  initializeTableNode(tableNode, nodeKey, tableElement);
+                } else if (tableElement !== tableSelection[1]) {
+                  // The update created a new DOM node, destroy the existing TableObserver
+                  tableSelection[0].removeListeners();
+                  tableObservers.observers.delete(nodeKey);
+                  initializeTableNode(tableNode, nodeKey, tableElement);
+                }
+              } else if (mutation === 'destroyed') {
+                if (tableSelection !== undefined) {
+                  tableSelection[0].removeListeners();
+                  tableObservers.observers.delete(nodeKey);
+                }
               }
             }
-          }
-        },
-        {editor},
-      );
+          },
+          {editor},
+        );
+      },
+      {skipInitialization: false},
+    ),
+    () => {
+      // Hook might be called multiple times so cleaning up tables listeners as well,
+      // as it'll be reinitialized during recurring call
+      for (const [, [tableSelection]] of tableObservers.observers) {
+        tableSelection.removeListeners();
+      }
     },
-    {skipInitialization: false},
   );
-
-  return () => {
-    unregisterMutationListener();
-    // Hook might be called multiple times so cleaning up tables listeners as well,
-    // as it'll be reinitialized during recurring call
-    for (const [, [tableSelection]] of tableSelections) {
-      tableSelection.removeListeners();
-    }
-  };
 }
 
 /**
@@ -397,17 +401,13 @@ export function registerTableSelectionObserver(
  */
 export function registerTablePlugin(
   editor: LexicalEditor,
-  options?: Pick<
-    NamedSignalsOutput<TableConfig>,
-    'hasNestedTables' | 'hasFitNestedTables'
-  >,
+  options?: Pick<NamedSignalsOutput<TableConfig>, 'hasNestedTables'>,
 ): () => void {
   if (!editor.hasNodes([TableNode])) {
     invariant(false, 'TablePlugin: TableNode is not registered on editor');
   }
 
-  const {hasNestedTables = signal(false), hasFitNestedTables = signal(false)} =
-    options ?? {};
+  const {hasNestedTables = signal(false)} = options ?? {};
 
   return mergeRegister(
     editor.registerCommand(
@@ -426,7 +426,6 @@ export function registerTablePlugin(
         return $tableSelectionInsertClipboardNodesCommand(
           payload,
           hasNestedTables,
-          hasFitNestedTables,
         );
       },
       COMMAND_PRIORITY_EDITOR,
@@ -452,7 +451,6 @@ function $tableSelectionInsertClipboardNodesCommand(
     typeof SELECTION_INSERT_CLIPBOARD_NODES_COMMAND
   >,
   hasNestedTables: Signal<boolean>,
-  hasFitNestedTables: Signal<boolean>,
 ) {
   const {nodes, selection} = selectionPayload;
 
@@ -486,13 +484,13 @@ function $tableSelectionInsertClipboardNodesCommand(
     return $insertTableIntoGrid(nodes[0], selection);
   }
 
-  // When pasting multiple nodes (including tables) into a cell, update the table to fit.
-  if (isRangeSelection && hasNestedTables.peek()) {
-    return $insertTableNodesIntoCells(
-      nodes,
-      selection,
-      hasFitNestedTables.peek(),
-    );
+  // If nested tables are enabled, allow pasting a table into a single cell.
+  if (
+    isRangeSelection &&
+    hasNestedTables.peek() &&
+    !$isMultiCellTableSelection(selection)
+  ) {
+    return false;
   }
 
   // If we reached this point, there's a table in the selection and nested tables are not allowed - reject the paste.
@@ -676,142 +674,21 @@ function $insertTableIntoGrid(
   return true;
 }
 
-// Inserts the given nodes (which will include TableNodes) into the table at the given selection.
-function $insertTableNodesIntoCells(
-  nodes: LexicalNode[],
+function $isMultiCellTableSelection(
   selection: TableSelection | RangeSelection,
-  hasFitNestedTables: boolean,
 ) {
-  // Currently only support pasting into a single cell. In other cases we reject the insertion.
-  const isMultiCellTableSelection =
+  if (
     $isTableSelection(selection) &&
-    !selection.focus.getNode().is(selection.anchor.getNode());
-  const isMultiCellRangeSelection =
-    $isRangeSelection(selection) &&
-    $isTableCellNode(selection.anchor.getNode()) &&
-    !selection.anchor.getNode().is(selection.focus.getNode());
-  if (isMultiCellTableSelection || isMultiCellRangeSelection) {
+    !selection.focus.getNode().is(selection.anchor.getNode())
+  ) {
     return true;
   }
-
-  if (!hasFitNestedTables) {
-    return false;
-  }
-
-  const focusNode = selection.focus.getNode();
-  const parentCell = $findMatchingParent(focusNode, $isTableCellNode);
-  if (!parentCell) {
-    return false;
-  }
-
-  const cellWidth = $getCellWidth(parentCell);
-  if (cellWidth === undefined) {
-    return false;
-  }
-  const borderBoxInsets = $calculateCellInsets(parentCell);
-  const tables = nodes.filter($isTableNode);
-  for (const table of tables) {
-    // Note: here we assume the inset is consistent for cells at all nesting levels.
-    $resizeTableToFitCell(table, cellWidth, borderBoxInsets);
-  }
-
-  return false;
-}
-
-/**
- * Return the width of a specific cell, using the table-level colWidths.
- */
-function $getCellWidth(cell: TableCellNode) {
-  const destinationTableNode = $getTableNodeFromLexicalNodeOrThrow(cell);
-
-  const cellRect = $getTableCellNodeRect(cell);
-  const colWidths = destinationTableNode.getColWidths();
-  if (!cellRect || !colWidths) {
-    return undefined;
-  }
-  const {columnIndex, colSpan} = cellRect;
-  let totalWidth = 0;
-  for (let i = columnIndex; i < columnIndex + colSpan; i++) {
-    totalWidth += colWidths[i];
-  }
-  return totalWidth;
-}
-
-/**
- * Returns horizontal insets of the given cell (padding + border).
- */
-function $calculateCellInsets(cell: TableCellNode) {
-  const cellDOM = $getEditor().getElementByKey(cell.getKey());
-  if (cellDOM === null) {
-    return 0;
-  }
-  const computedStyle = window.getComputedStyle(cellDOM);
-  const paddingLeft = computedStyle.getPropertyValue('padding-left') || '0px';
-  const paddingRight = computedStyle.getPropertyValue('padding-right') || '0px';
-  const borderLeftWidth =
-    computedStyle.getPropertyValue('border-left-width') || '0px';
-  const borderRightWidth =
-    computedStyle.getPropertyValue('padding-right-width') || '0px';
-
   if (
-    !PIXEL_VALUE_REG_EXP.test(paddingLeft) ||
-    !PIXEL_VALUE_REG_EXP.test(paddingRight) ||
-    !PIXEL_VALUE_REG_EXP.test(borderLeftWidth) ||
-    !PIXEL_VALUE_REG_EXP.test(borderRightWidth)
+    $isRangeSelection(selection) &&
+    $isTableCellNode(selection.anchor.getNode()) &&
+    !selection.anchor.getNode().is(selection.focus.getNode())
   ) {
-    return 0;
+    return true;
   }
-  const paddingLeftPx = parseFloat(paddingLeft);
-  const paddingRightPx = parseFloat(paddingRight);
-  const borderLeftWidthPx = parseFloat(borderLeftWidth);
-  const borderRightWidthPx = parseFloat(borderRightWidth);
-
-  return (
-    paddingLeftPx + paddingRightPx + borderLeftWidthPx + borderRightWidthPx
-  );
-}
-
-function $getTotalTableWidth(colWidths: readonly number[]) {
-  return colWidths.reduce((curWidth, width) => curWidth + width, 0);
-}
-
-/**
- * Recursively resizes table cells to fit a given width.
- *
- * @param node the table node to resize. The table must have colWidths to be resized.
- * @param parentCellWidth the width of the parent cell
- * @param borderBoxInsets the insets of the parent cell (padding + border)
- */
-function $resizeTableToFitCell(
-  node: TableNode,
-  parentCellWidth: number,
-  borderBoxInsets: number,
-) {
-  const oldColWidths = node.getColWidths();
-  if (!oldColWidths) {
-    return node;
-  }
-
-  const usableWidth = parentCellWidth - borderBoxInsets;
-  const tableWidth = $getTotalTableWidth(oldColWidths);
-  if (tableWidth <= usableWidth) {
-    return node;
-  }
-
-  const proportionalWidth = usableWidth / tableWidth;
-  node.setColWidths(oldColWidths.map((width) => width * proportionalWidth));
-
-  const rowChildren = node.getChildren().filter($isTableRowNode);
-  for (const rowChild of rowChildren) {
-    const cellChildren = rowChild.getChildren().filter($isTableCellNode);
-    for (const cellChild of cellChildren) {
-      const cellWidth = $getCellWidth(cellChild);
-      if (cellWidth === undefined) {
-        continue;
-      }
-      for (const table of cellChild.getChildren().filter($isTableNode)) {
-        $resizeTableToFitCell(table, cellWidth, borderBoxInsets);
-      }
-    }
-  }
+  return false;
 }

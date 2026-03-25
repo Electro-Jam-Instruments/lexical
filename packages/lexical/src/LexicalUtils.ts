@@ -696,11 +696,16 @@ export function doesContainSurrogatePair(str: string): boolean {
 export function getEditorsToPropagate(
   editor: LexicalEditor,
 ): Array<LexicalEditor> {
-  const editorsToPropagate = [];
-  let currentEditor: LexicalEditor | null = editor;
-  while (currentEditor !== null) {
+  const editorsToPropagate: LexicalEditor[] = [];
+  for (
+    let currentEditor: LexicalEditor | null = editor;
+    currentEditor !== null;
+    // Do not propagate commands to parent editors that are
+    // currently updating as that will trigger an early commit
+    // and can corrupt the nodeMap by doing GC too early
+    currentEditor = currentEditor._updating ? null : currentEditor._parentEditor
+  ) {
     editorsToPropagate.push(currentEditor);
-    currentEditor = currentEditor._parentEditor;
   }
   return editorsToPropagate;
 }
@@ -934,7 +939,7 @@ export function $shouldInsertTextAfterOrBeforeTextNode(
  */
 export type KeyboardEventModifiers = Pick<
   KeyboardEvent,
-  'key' | 'metaKey' | 'ctrlKey' | 'shiftKey' | 'altKey'
+  'key' | 'code' | 'metaKey' | 'ctrlKey' | 'shiftKey' | 'altKey'
 >;
 
 /**
@@ -992,10 +997,30 @@ export function isExactShortcutMatch(
   expectedKey: string,
   mask: KeyboardEventModifierMask,
 ): boolean {
-  return (
-    isModifierMatch(event, mask) &&
-    event.key.toLowerCase() === expectedKey.toLowerCase()
-  );
+  if (!isModifierMatch(event, mask)) {
+    return false;
+  }
+
+  if (event.key.toLowerCase() === expectedKey.toLowerCase()) {
+    // For special keys like Enter, Tab, ArrowUp, etc.
+    // For default keys with English-based keyboard layout.
+    return true;
+  }
+
+  if (expectedKey.length > 1) {
+    // For non English-based keyboard layout but the key is a special key, we must not match it by `event.code`.
+    return false;
+  }
+
+  if (event.key.length === 1 && event.key.charCodeAt(0) <= 127) {
+    // For ASCII keys we must not match it by `event.code` because it would break remapped layouts (English (US) Dvorak, etc.).
+    return false;
+  }
+
+  const expectedCode = 'Key' + expectedKey.toUpperCase();
+
+  // For default keys with not English-based keyboard layouts where `event.key` is non-ASCII, match by `event.code`.
+  return event.code === expectedCode;
 }
 
 const CONTROL_OR_META = {ctrlKey: !IS_APPLE, metaKey: IS_APPLE};
@@ -1392,6 +1417,16 @@ export function scrollIntoViewIfNeeded(
     if (isBodyElement) {
       targetTop = 0;
       targetBottom = getWindow(editor).innerHeight;
+      // Account for CSS scroll-padding on the document element
+      const computedStyle = defaultView.getComputedStyle(doc.documentElement);
+      const scrollPaddingTop = parseFloat(computedStyle.scrollPaddingTop);
+      const scrollPaddingBottom = parseFloat(computedStyle.scrollPaddingBottom);
+      if (isFinite(scrollPaddingTop)) {
+        targetTop += scrollPaddingTop;
+      }
+      if (isFinite(scrollPaddingBottom)) {
+        targetBottom -= scrollPaddingBottom;
+      }
     } else {
       const targetRect = element.getBoundingClientRect();
       targetTop = targetRect.top;
@@ -1535,12 +1570,19 @@ export function $isRootOrShadowRoot(
  * separately added to the document, and it will not have any children.
  *
  * @param node - The node to be copied.
+ * @param skipReset - If true (default false) skip the call to resetOnCopyNodeFrom
  * @returns The copy of the node.
  */
-export function $copyNode<T extends LexicalNode>(node: T): T {
+export function $copyNode<T extends LexicalNode>(
+  node: T,
+  skipReset = false,
+): T {
   const copy = node.constructor.clone(node) as T;
   $setNodeKey(copy, null);
   copy.afterCloneFrom(node);
+  if (!skipReset) {
+    copy.resetOnCopyNodeFrom(node);
+  }
   return copy;
 }
 

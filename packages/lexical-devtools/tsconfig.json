@@ -12,6 +12,8 @@
       "lexical": ["../lexical/src/index.ts"],
       "@lexical/clipboard": ["../lexical-clipboard/src/index.ts"],
       "@lexical/code": ["../lexical-code/src/index.ts"],
+      "@lexical/code-core": ["../lexical-code-core/src/index.ts"],
+      "@lexical/code-prism": ["../lexical-code-prism/src/index.ts"],
       "@lexical/code-shiki": ["../lexical-code-shiki/src/index.ts"],
       "@lexical/devtools-core": ["../lexical-devtools-core/src/index.ts"],
       "@lexical/dragon": ["../lexical-dragon/src/index.ts"],
@@ -72,9 +74,6 @@
       "@lexical/react/LexicalContentEditable": [
         "../lexical-react/src/LexicalContentEditable.tsx"
       ],
-      "@lexical/react/LexicalContextMenuPlugin": [
-        "../lexical-react/src/LexicalContextMenuPlugin.tsx"
-      ],
       "@lexical/react/LexicalDecoratorBlockNode": [
         "../lexical-react/src/LexicalDecoratorBlockNode.ts"
       ],
@@ -89,6 +88,9 @@
       ],
       "@lexical/react/LexicalExtensionComposer": [
         "../lexical-react/src/LexicalExtensionComposer.tsx"
+      ],
+      "@lexical/react/LexicalExtensionEditorComposer": [
+        "../lexical-react/src/LexicalExtensionEditorComposer.tsx"
       ],
       "@lexical/react/LexicalHashtagPlugin": [
         "../lexical-react/src/LexicalHashtagPlugin.ts"

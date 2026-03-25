@@ -8,7 +8,7 @@
 
 import type {ListNode} from '@lexical/list';
 
-import {$isCodeNode} from '@lexical/code';
+import {$isCodeNode} from '@lexical/code-core';
 import {$isListItemNode, $isListNode} from '@lexical/list';
 import {$isHeadingNode, $isQuoteNode} from '@lexical/rich-text';
 import {
@@ -461,4 +461,12 @@ export function isEmptyParagraph(node: LexicalNode): boolean {
       $isTextNode(firstChild) &&
       MARKDOWN_EMPTY_LINE_REG_EXP.test(firstChild.getTextContent()))
   );
+}
+
+export function unescapeText(value: string): string {
+  return value
+    .replace(/\\([!-/:-@[-`{-~])/g, '$1')
+    .replace(/&#(\d+);/g, (_, codePoint) =>
+      String.fromCodePoint(Number(codePoint)),
+    );
 }

@@ -9,7 +9,7 @@
 import type {ListType} from '@lexical/list';
 import type {HeadingTagType} from '@lexical/rich-text';
 
-import {$createCodeNode, $isCodeNode, CodeNode} from '@lexical/code';
+import {$createCodeNode, $isCodeNode, CodeNode} from '@lexical/code-core';
 import {
   $createLinkNode,
   $isAutoLinkNode,
@@ -47,6 +47,7 @@ import {
 import {
   $createLineBreakNode,
   $createTextNode,
+  $findMatchingParent,
   $getState,
   $isParagraphNode,
   $isTextNode,
@@ -61,6 +62,7 @@ import {
 
 import {createMarkdownExport} from './MarkdownExport';
 import {createMarkdownImport} from './MarkdownImport';
+import {unescapeText} from './utils';
 
 export type Transformer =
   | ElementTransformer
@@ -236,15 +238,17 @@ const ENDS_WITH = (regex: RegExp) =>
 
 export const listMarkerState = createState('mdListMarker', {
   parse: (v) => (typeof v === 'string' && /^[-*+]$/.test(v) ? v : '-'),
+  resetOnCopyNode: true,
 });
 
-export const codeFenceState = createState<string, string>('mdCodeFence', {
+export const codeFenceState = createState('mdCodeFence', {
   parse: (val) => {
     if (typeof val === 'string' && /^`{3,}$/.test(val)) {
       return val;
     }
     return '```';
   },
+  resetOnCopyNode: true,
 });
 
 const createBlockNode = (
@@ -854,9 +858,12 @@ export const LINK: TextMatchTransformer = {
     if (!$isLinkNode(node) || $isAutoLinkNode(node)) {
       return null;
     }
-    const title = node.getTitle();
-
     const textContent = exportChildren(node);
+    let title = node.getTitle();
+
+    if (title != null) {
+      title = title.replace(/([\\"])/g, '\\$1');
+    }
 
     const linkContent = title
       ? `[${textContent}](${node.getURL()} "${title}")`
@@ -870,7 +877,14 @@ export const LINK: TextMatchTransformer = {
     /(?:\[([^[\]]*(?:\[[^[\]]*\][^[\]]*)*)\])(?:\((?:([^()\s]+)(?:\s"((?:[^"]*\\")*[^"]*)"\s*)?)\))$/,
   replace: (textNode, match) => {
     // https://spec.commonmark.org/0.31.2/#inline-link
-    const [, linkText, linkUrl, linkTitle] = match;
+    if ($findMatchingParent(textNode, $isLinkNode)) {
+      return;
+    }
+    const [, linkText, rawLinkUrl, rawLinkTitle] = match;
+
+    const linkUrl = rawLinkUrl != null ? unescapeText(rawLinkUrl) : undefined;
+    const linkTitle =
+      rawLinkTitle != null ? unescapeText(rawLinkTitle) : undefined;
     const linkNode = $createLinkNode(linkUrl, {title: linkTitle});
     const openBracketAmount = linkText.split('[').length - 1;
     const closeBracketAmount = linkText.split(']').length - 1;

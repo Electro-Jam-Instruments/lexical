@@ -47,12 +47,6 @@ export interface TableConfig {
    * @experimental Nested tables are not officially supported.
    */
   hasNestedTables: boolean;
-  /**
-   * When `true` (default `false`), nested tables will be resized to fit the width of the parent table cell.
-   *
-   * @experimental Nested tables are not officially supported.
-   */
-  hasFitNestedTables: boolean;
 }
 
 /**
@@ -66,7 +60,6 @@ export const TableExtension = defineExtension({
   config: safeCast<TableConfig>({
     hasCellBackgroundColor: true,
     hasCellMerge: true,
-    hasFitNestedTables: false,
     hasHorizontalScroll: true,
     hasNestedTables: false,
     hasTabHandler: true,

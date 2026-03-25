@@ -26,7 +26,6 @@ import {
   html,
   initialize,
   IS_COLLAB_V2,
-  LEGACY_EVENTS,
   pasteFromClipboard,
   pressToggleBold,
   pressToggleUnderline,
@@ -681,9 +680,7 @@ test.describe.parallel('Markdown', () => {
       isCollab,
     }) => {
       await focusEditor(page);
-      await page.keyboard.type(testCase.text, {
-        delay: LEGACY_EVENTS ? 50 : 0,
-      });
+      await page.keyboard.type(testCase.text);
       await assertHTML(page, testCase.html, undefined, {ignoreClasses: false});
       await assertMarkdownImportExport(page, testCase.text, testCase.html);
     });
@@ -692,9 +689,7 @@ test.describe.parallel('Markdown', () => {
   NESTED_TEXT_FORMAT_SHORTCUTS.forEach((testCase) => {
     test(`can convert "${testCase.text}" shortcut`, async ({page}) => {
       await focusEditor(page);
-      await page.keyboard.type(testCase.text, {
-        delay: LEGACY_EVENTS ? 50 : 0,
-      });
+      await page.keyboard.type(testCase.text);
       await assertHTML(page, testCase.html, undefined, {ignoreClasses: false});
       await assertMarkdownImportExport(page, testCase.text, testCase.html);
     });
@@ -963,10 +958,7 @@ test.describe.parallel('Markdown', () => {
       html`
         <p class="PlaygroundEditorTheme__paragraph" dir="auto">
           <a class="PlaygroundEditorTheme__link" href="https://lexical.dev">
-            <span data-lexical-text="true">link</span>
-          </a>
-          <a class="PlaygroundEditorTheme__link" href="https://lexical.dev">
-            <span data-lexical-text="true">link</span>
+            <span data-lexical-text="true">linklink</span>
           </a>
           <span
             class="editor-image"
@@ -1259,7 +1251,7 @@ This is *italic*, _italic_, **bold**, __bold__, ~~strikethrough~~ text
 This is *__~~bold italic strikethrough~~__* text,
 ___~~this one too~~___
 
-It ~~___works [with links](https://lexical.io)___~~ too
+It ***~~works~~*** and [***~~with links~~***](https://lexical.io) too
 
 Links [with underscores](https://lexical.io/tag_here_and__here__and___here___too) and ([parenthesis](https://lexical.dev))
 
@@ -1354,6 +1346,7 @@ const IMPORTED_MARKDOWN_HTML = html`
       data-lexical-text="true">
       works
     </strong>
+    <span data-lexical-text="true">and</span>
     <a class="PlaygroundEditorTheme__link" href="https://lexical.io">
       <strong
         class="PlaygroundEditorTheme__textBold PlaygroundEditorTheme__textItalic PlaygroundEditorTheme__textStrikethrough"

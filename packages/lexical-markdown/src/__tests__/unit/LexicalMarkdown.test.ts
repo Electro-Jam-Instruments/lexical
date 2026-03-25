@@ -6,7 +6,7 @@
  *
  */
 
-import {$createCodeNode, CodeNode} from '@lexical/code';
+import {$createCodeNode, CodeNode} from '@lexical/code-core';
 import {createHeadlessEditor} from '@lexical/headless';
 import {$generateHtmlFromNodes, $generateNodesFromDOM} from '@lexical/html';
 import {$createLinkNode, LinkNode} from '@lexical/link';
@@ -399,7 +399,7 @@ describe('Markdown', () => {
       md: '[Hello](https://lexical.dev "Hello world") world',
     },
     {
-      html: '<p><a href="https://lexical.dev" title="Title with \\&quot; escaped character"><span style="white-space: pre-wrap;">Hello</span></a><span style="white-space: pre-wrap;"> world</span></p>',
+      html: '<p><a href="https://lexical.dev" title="Title with &quot; escaped character"><span style="white-space: pre-wrap;">Hello</span></a><span style="white-space: pre-wrap;"> world</span></p>',
       md: '[Hello](https://lexical.dev "Title with \\" escaped character") world',
     },
     {
@@ -409,17 +409,14 @@ describe('Markdown', () => {
     {
       html: '<p><b><strong style="white-space: pre-wrap;">Hello </strong></b><s><b><strong style="white-space: pre-wrap;">world</strong></b></s><span style="white-space: pre-wrap;">!</span></p>',
       md: '**Hello ~~world~~**!',
-      mdAfterExport: '**Hello&#32;~~world~~**!',
     },
     {
       html: '<p><s><b><strong style="white-space: pre-wrap;">Hello </strong></b></s><s><i><b><strong style="white-space: pre-wrap;">world</strong></b></i></s><s><span style="white-space: pre-wrap;">!</span></s></p>',
       md: '**~~Hello *world*~~**~~!~~',
-      mdAfterExport: '**~~Hello&#32;*world*~~**~~!~~',
     },
     {
       html: '<p><i><em style="white-space: pre-wrap;">Hello </em></i><i><b><strong style="white-space: pre-wrap;">world</strong></b></i><i><em style="white-space: pre-wrap;">!</em></i></p>',
       md: '*Hello **world**!*',
-      mdAfterExport: '*Hello&#32;**world**!*',
     },
     {
       html: '<p><span style="white-space: pre-wrap;">hello world</span></p>',
@@ -605,25 +602,25 @@ describe('Markdown', () => {
       html: '<p><span style="white-space: pre-wrap;">Text </span><b><strong style="white-space: pre-wrap;">boldstart </strong></b><a href="https://lexical.dev"><b><strong style="white-space: pre-wrap;">text</strong></b></a><b><strong style="white-space: pre-wrap;"> boldend</strong></b><span style="white-space: pre-wrap;"> text</span></p>',
       md: 'Text **boldstart [text](https://lexical.dev) boldend** text',
       mdAfterExport:
-        'Text **boldstart&#32;**[**text**](https://lexical.dev)**&#32;boldend** text',
+        'Text **boldstart** [**text**](https://lexical.dev) **boldend** text',
     },
     {
       html: '<p><span style="white-space: pre-wrap;">Text </span><b><strong style="white-space: pre-wrap;">boldstart </strong></b><a href="https://lexical.dev"><b><code spellcheck="false" style="white-space: pre-wrap;"><strong>text</strong></code></b></a><b><strong style="white-space: pre-wrap;"> boldend</strong></b><span style="white-space: pre-wrap;"> text</span></p>',
       md: 'Text **boldstart [`text`](https://lexical.dev) boldend** text',
       mdAfterExport:
-        'Text **boldstart&#32;**[**`text`**](https://lexical.dev)**&#32;boldend** text',
+        'Text **boldstart** [**`text`**](https://lexical.dev) **boldend** text',
     },
     {
       html: '<p><span style="white-space: pre-wrap;">It </span><s><i><b><strong style="white-space: pre-wrap;">works </strong></b></i></s><a href="https://lexical.io"><s><i><b><strong style="white-space: pre-wrap;">with links</strong></b></i></s></a><span style="white-space: pre-wrap;"> too</span></p>',
       md: 'It ~~___works [with links](https://lexical.io)___~~ too',
       mdAfterExport:
-        'It ***~~works&#32;~~***[***~~with links~~***](https://lexical.io) too',
+        'It ***~~works~~*** [***~~with links~~***](https://lexical.io) too',
     },
     {
       html: '<p><span style="white-space: pre-wrap;">It </span><s><i><b><strong style="white-space: pre-wrap;">works </strong></b></i></s><a href="https://lexical.io"><s><i><b><strong style="white-space: pre-wrap;">with links</strong></b></i></s></a><s><i><b><strong style="white-space: pre-wrap;"> too</strong></b></i></s><span style="white-space: pre-wrap;">!</span></p>',
       md: 'It ~~___works [with links](https://lexical.io) too___~~!',
       mdAfterExport:
-        'It ***~~works&#32;~~***[***~~with links~~***](https://lexical.io)***~~&#32;too~~***!',
+        'It ***~~works~~*** [***~~with links~~***](https://lexical.io) ***~~too~~***!',
     },
     {
       html: '<p><a href="https://lexical.dev"><span style="white-space: pre-wrap;">link</span></a><a href="https://lexical.dev"><span style="white-space: pre-wrap;">link2</span></a></p>',
@@ -633,6 +630,10 @@ describe('Markdown', () => {
       // Test that importRegExp is not too greedy when there are multiple link patterns
       html: '<p><a href="https://a.example.com"><span style="white-space: pre-wrap;">a</span></a><span style="white-space: pre-wrap;"> </span><a href="https://b.example.com"><span style="white-space: pre-wrap;">b</span></a></p>',
       md: '[a](https://a.example.com) [b](https://b.example.com)',
+    },
+    {
+      html: '<p><span style="white-space: pre-wrap;">[foo </span><a href="/uri"><span style="white-space: pre-wrap;">bar</span></a><span style="white-space: pre-wrap;">](/uri)</span></p>',
+      md: '[foo [bar](/uri)](/uri)',
     },
     {
       // Import only: <mark>...</mark> is exported as ==...== in markdown.
@@ -691,6 +692,7 @@ describe('Markdown', () => {
     {
       html: '<p><b><strong style="white-space: pre-wrap;">&nbsp;</strong></b></p>',
       md: '**&#160;**',
+      mdAfterExport: '\xA0',
     },
     {
       html: '<p><a href="https://lexical.dev"><span style="white-space: pre-wrap;">[h]ello</span></a><a href="https://lexical.dev"><span style="white-space: pre-wrap;">h[e]llo</span></a></p>',
@@ -715,12 +717,11 @@ describe('Markdown', () => {
     {
       html: '<p><a href="https://lexical.dev"><b><strong style="white-space: pre-wrap;">link</strong></b></a><b><strong style="white-space: pre-wrap;">text</strong></b></p>',
       md: '[**link**](https://lexical.dev)**text**',
-      mdAfterExport: '[**link**](https://lexical.dev)**text**',
     },
     {
       html: '<p><b><strong style="white-space: pre-wrap;">text </strong></b><a href="https://lexical.dev"><b><strong style="white-space: pre-wrap;">link</strong></b></a></p>',
       md: '**text [link](https://lexical.dev)**',
-      mdAfterExport: '**text&#32;**[**link**](https://lexical.dev)',
+      mdAfterExport: '**text** [**link**](https://lexical.dev)',
     },
     {
       html: '<p><i><em style="white-space: pre-wrap;">text</em></i><i><b><strong style="white-space: pre-wrap;">text</strong></b></i></p>',
@@ -734,7 +735,7 @@ describe('Markdown', () => {
     {
       html: '<p><b><strong style="white-space: pre-wrap;">foo </strong></b><a href="/url"><i><b><strong style="white-space: pre-wrap;">bar</strong></b></i></a></p>',
       md: '**foo [*bar*](/url)**',
-      mdAfterExport: '**foo&#32;**[***bar***](/url)',
+      mdAfterExport: '**foo** [***bar***](/url)',
     },
     {
       html: '<p><span style="white-space: pre-wrap;">*foo </span><i><em style="white-space: pre-wrap;">bar baz</em></i></p>',
@@ -744,12 +745,56 @@ describe('Markdown', () => {
     {
       html: '<p><i><em style="white-space: pre-wrap;">a </em></i><i><code spellcheck="false" style="white-space: pre-wrap;"><em>*</em></code></i><i><em style="white-space: pre-wrap;"> b </em></i><i><code spellcheck="false" style="white-space: pre-wrap;"><em>x</em></code></i></p>',
       md: '*a `*` b `x`*',
-      mdAfterExport: '*a&#32;`*`&#32;b&#32;`x`*',
     },
     {
       html: '<p><span style="white-space: pre-wrap;">_foo_bar</span></p>',
       md: '_foo_bar',
       mdAfterExport: '\\_foo\\_bar',
+    },
+    {
+      html: '<p><b><strong style="white-space: pre-wrap;">Hello </strong></b><s><b><strong style="white-space: pre-wrap;">world</strong></b></s><span style="white-space: pre-wrap;">!</span></p>',
+      md: '**Hello&#32;~~world~~**!',
+      mdAfterExport: '**Hello ~~world~~**!',
+    },
+    {
+      html: '<p><i><em style="white-space: pre-wrap;">Hello </em></i><i><b><strong style="white-space: pre-wrap;">world</strong></b></i><i><em style="white-space: pre-wrap;">!</em></i></p>',
+      md: '*Hello&#32;**world**!*',
+      mdAfterExport: '*Hello **world**!*',
+    },
+    {
+      html: '<p><s><b><strong style="white-space: pre-wrap;">Hello </strong></b></s><s><i><b><strong style="white-space: pre-wrap;">world</strong></b></i></s><s><span style="white-space: pre-wrap;">!</span></s></p>',
+      md: '**~~Hello&#32;*world*~~**~~!~~',
+      mdAfterExport: '**~~Hello *world*~~**~~!~~',
+    },
+    {
+      html: '<p><span style="white-space: pre-wrap;">!"#$%&amp;\'()*+,-./:;&lt;=&gt;?@[\\]^_`{|}~</span></p>',
+      md: '\\!\\"\\#\\$\\%\\&\\\'\\(\\)\\*\\+\\,\\-\\.\\/\\:\\;\\<\\=\\>\\?\\@\\[\\\\\\]\\^\\_\\`\\{\\|\\}\\~',
+      mdAfterExport: '!"#$%&\'()\\*+,-./:;<=>?@[\\\\]^\\_\\`{|}\\~',
+    },
+    {
+      html: '<p><span style="white-space: pre-wrap;">\\→\\A\\a\\ \\3\\φ\\«</span></p>',
+      md: '\\→\\A\\a\\ \\3\\φ\\«',
+      mdAfterExport: '\\\\→\\\\A\\\\a\\\\ \\\\3\\\\φ\\\\«',
+    },
+    {
+      html: '<p><span style="white-space: pre-wrap;">foo</span><br><span style="white-space: pre-wrap;">bar</span></p>',
+      md: 'foo\\\nbar',
+      mdAfterExport: 'foo\nbar',
+    },
+    {
+      html: '<p><span style="white-space: pre-wrap;">foo </span><a href="https://lexical.dev"><span style="white-space: pre-wrap;">bar</span></a><span style="white-space: pre-wrap;">\t</span><span style="white-space: pre-wrap;">baz</span></p>',
+      md: 'foo [bar](https://lexical.dev)\tbaz',
+      skipExport: true,
+    },
+    {
+      html: '<p><span style="white-space: pre-wrap;">foo</span><span style="white-space: pre-wrap;">\t</span><span style="white-space: pre-wrap;"> </span><span style="white-space: pre-wrap;">\t</span><span style="white-space: pre-wrap;">bar</span><br><span style="white-space: pre-wrap;">\t</span><span style="white-space: pre-wrap;">baz</span></p>',
+      md: 'foo\t \tbar\n\tbaz',
+      skipExport: true,
+    },
+    {
+      html: '<p><span style="white-space: pre-wrap;">Hello</span><span style="white-space: pre-wrap;">\t</span><span style="white-space: pre-wrap;">\t</span><span style="white-space: pre-wrap;">World</span></p>',
+      md: 'Hello\t\tWorld',
+      skipExport: true,
     },
   ];
 

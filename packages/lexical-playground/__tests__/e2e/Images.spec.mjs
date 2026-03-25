@@ -24,7 +24,6 @@ import {
   insertUrlImage,
   IS_COLLAB_V2,
   IS_WINDOWS,
-  LEGACY_EVENTS,
   SAMPLE_IMAGE_URL,
   SAMPLE_LANDSCAPE_IMAGE_URL,
   SAMPLE_SVG_URL,
@@ -618,8 +617,6 @@ test.describe('Images', () => {
     isPlainText,
     browserName,
   }) => {
-    // It doesn't work in legacy events mode in WebKit #5673
-    test.fixme(LEGACY_EVENTS && browserName === 'webkit');
     test.skip(isPlainText);
 
     await focusEditor(page);
@@ -818,5 +815,38 @@ test.describe('Images', () => {
         </p>
       `,
     );
+  });
+
+  test('Dimensionless SVG renders with a visible bounding box instead of collapsing', async ({
+    page,
+    isRichText,
+    isCollab,
+  }) => {
+    test.skip(!isRichText || isCollab);
+    await initialize({page});
+    await focusEditor(page);
+
+    await focusEditor(page);
+
+    // 1. Create a raw SVG without width/height attributes
+    const svgContent = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="40" fill="red"/></svg>`;
+    const base64Svg = `data:image/svg+xml;base64,${Buffer.from(svgContent).toString('base64')}`;
+
+    // 2. Use the repository's native helper instead of hacking the clipboard!
+    await insertUrlImage(page, base64Svg, 'dimensionless-svg');
+
+    // 3. Locator for the image (using the same selector pattern as the other tests)
+    const imageLocator = page.locator(
+      '.editor-image img[alt="dimensionless-svg"]',
+    );
+    await imageLocator.waitFor({state: 'attached', timeout: 5000});
+
+    // 4. Verification: The bounding box should NOT be 0x0
+    const boundingBox = await imageLocator.boundingBox();
+    expect(boundingBox).not.toBeNull();
+
+    // This verifies your fix in ImageComponent.tsx
+    expect(boundingBox.width).toBeGreaterThan(0);
+    expect(boundingBox.height).toBeGreaterThan(0);
   });
 });

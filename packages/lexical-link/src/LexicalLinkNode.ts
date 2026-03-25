@@ -16,22 +16,31 @@ import type {
   LexicalUpdateJSON,
   NodeKey,
   Point,
+  PointCaret,
+  PointType,
   RangeSelection,
   SerializedElementNode,
 } from 'lexical';
 
 import {
   $findMatchingParent,
+  $insertNodeToNearestRootAtCaret,
   addClassNamesToElement,
   isHTMLAnchorElement,
 } from '@lexical/utils';
 import {
   $applyNodeReplacement,
+  $caretFromPoint,
+  $copyNode,
+  $getChildCaret,
   $getSelection,
   $isElementNode,
   $isNodeSelection,
   $isRangeSelection,
+  $normalizeCaret,
   $normalizeSelection__EXPERIMENTAL,
+  $rewindSiblingCaret,
+  $setPointFromCaret,
   $setSelection,
   createCommand,
   ElementNode,
@@ -100,6 +109,14 @@ export class LinkNode extends ElementNode {
     this.__target = target;
     this.__rel = rel;
     this.__title = title;
+  }
+
+  afterCloneFrom(prevNode: this): void {
+    super.afterCloneFrom(prevNode);
+    this.__url = prevNode.__url;
+    this.__rel = prevNode.__rel;
+    this.__target = prevNode.__target;
+    this.__title = prevNode.__title;
   }
 
   createDOM(config: EditorConfig): LinkHTMLElementType {
@@ -231,11 +248,7 @@ export class LinkNode extends ElementNode {
     _: RangeSelection,
     restoreSelection = true,
   ): null | ElementNode {
-    const linkNode = $createLinkNode(this.__url, {
-      rel: this.__rel,
-      target: this.__target,
-      title: this.__title,
-    });
+    const linkNode = $copyNode(this);
     this.insertAfter(linkNode, restoreSelection);
     return linkNode;
   }
@@ -248,7 +261,7 @@ export class LinkNode extends ElementNode {
     return false;
   }
 
-  canBeEmpty(): false {
+  canBeEmpty(): boolean {
     return false;
   }
 
@@ -284,6 +297,99 @@ export class LinkNode extends ElementNode {
       this.__url.startsWith('https://') || this.__url.startsWith('http://')
     );
   }
+
+  shouldMergeAdjacentLink(otherLink: LinkNode): boolean {
+    return (
+      this.getType() === otherLink.getType() &&
+      this.__url === otherLink.__url &&
+      this.__target === otherLink.__target &&
+      this.__rel === otherLink.__rel &&
+      this.__title === otherLink.__title
+    );
+  }
+}
+
+type CaretPair = [PointCaret<'next'>, PointCaret<'previous'>];
+
+function $saveCaretPair(point: PointType): CaretPair {
+  const next = $caretFromPoint(point, 'next');
+  return [next, next.getFlipped()];
+}
+
+function $restoreCaretPair(point: PointType, pair: CaretPair): void {
+  for (const caret of pair) {
+    if (caret.origin.isAttached()) {
+      const normalized = $normalizeCaret(caret);
+      $setPointFromCaret(point, normalized);
+      return;
+    }
+  }
+}
+
+/**
+ * Extracts block-level children from a LinkNode, splitting
+ * ancestor nodes as needed to maintain a valid document structure.
+ * @param link - The LinkNode to normalize
+ */
+export function $linkNodeTransform(link: LinkNode): void {
+  const selection = $getSelection();
+  let anchorPair: CaretPair | null = null;
+  let focusPair: CaretPair | null = null;
+  if ($isRangeSelection(selection)) {
+    anchorPair = $saveCaretPair(selection.anchor);
+    focusPair = $saveCaretPair(selection.focus);
+  }
+  function $restoreSelection(): void {
+    if ($isRangeSelection(selection)) {
+      $restoreCaretPair(selection.anchor, anchorPair!);
+      $restoreCaretPair(selection.focus, focusPair!);
+      $normalizeSelection__EXPERIMENTAL(selection);
+    }
+  }
+
+  let transformed = false;
+  for (const caret of $getChildCaret(link, 'next')) {
+    const node = caret.origin;
+    if ($isElementNode(node) && !node.isInline()) {
+      const blockChildren = node.getChildren();
+      if (blockChildren.length > 0) {
+        const innerLink = $copyNode(link);
+        innerLink.append(...blockChildren);
+        node.append(innerLink);
+        transformed = true;
+      }
+      $insertNodeToNearestRootAtCaret(node, $rewindSiblingCaret(caret), {
+        $shouldSplit: () => false,
+      });
+    }
+  }
+  if (link.isAttached()) {
+    const prevSibling = link.getPreviousSibling();
+    if ($isLinkNode(prevSibling) && prevSibling.shouldMergeAdjacentLink(link)) {
+      prevSibling.append(...link.getChildren());
+      link.remove();
+      $restoreSelection();
+      return;
+    }
+    const nextSibling = link.getNextSibling();
+    if ($isLinkNode(nextSibling) && link.shouldMergeAdjacentLink(nextSibling)) {
+      link.append(...nextSibling.getChildren());
+      nextSibling.remove();
+      transformed = true;
+    }
+  }
+  if (!transformed) {
+    return;
+  }
+  if (!link.canBeEmpty() && link.isEmpty()) {
+    const parent = link.getParent();
+    link.remove();
+    if (parent && parent.isEmpty()) {
+      parent.remove();
+    }
+  }
+
+  $restoreSelection();
 }
 
 function $convertAnchorElement(domNode: Node): DOMConversionOutput {
@@ -351,6 +457,11 @@ export class AutoLinkNode extends LinkNode {
         : false;
   }
 
+  afterCloneFrom(prevNode: this): void {
+    super.afterCloneFrom(prevNode);
+    this.__isUnlinked = prevNode.__isUnlinked;
+  }
+
   static getType(): string {
     return 'autolink';
   }
@@ -366,6 +477,10 @@ export class AutoLinkNode extends LinkNode {
       },
       node.__key,
     );
+  }
+
+  shouldMergeAdjacentLink(_otherLink: LinkNode): boolean {
+    return false;
   }
 
   getIsUnlinked(): boolean {
@@ -578,11 +693,7 @@ function $splitLinkAtSelection(
 
     const trailingChildren = allChildren.slice(lastExtractedIndex + 1);
     if (trailingChildren.length > 0) {
-      const newLink = $createLinkNode(parentLink.getURL(), {
-        rel: parentLink.getRel(),
-        target: parentLink.getTarget(),
-        title: parentLink.getTitle(),
-      });
+      const newLink = $copyNode(parentLink);
 
       extractedChildren[extractedChildren.length - 1].insertAfter(newLink);
       trailingChildren.forEach((child) => newLink.append(child));

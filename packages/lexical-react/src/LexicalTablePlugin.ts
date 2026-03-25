@@ -45,12 +45,6 @@ export interface TablePluginProps {
    * @experimental Nested tables are not officially supported.
    */
   hasNestedTables?: boolean;
-  /**
-   * When `true` (default `false`), nested tables will be resized to fit the width of the parent table cell.
-   *
-   * @experimental Nested tables are not officially supported.
-   */
-  hasFitNestedTables?: boolean;
 }
 
 /**
@@ -65,7 +59,6 @@ export function TablePlugin({
   hasTabHandler = true,
   hasHorizontalScroll = false,
   hasNestedTables = false,
-  hasFitNestedTables = false,
 }: TablePluginProps): JSX.Element | null {
   const [editor] = useLexicalComposerContext();
 
@@ -80,15 +73,10 @@ export function TablePlugin({
   }, [editor, hasHorizontalScroll]);
 
   const hasNestedTablesSignal = usePropSignal(hasNestedTables);
-  const hasFitNestedTablesSignal = usePropSignal(hasFitNestedTables);
 
   useEffect(
-    () =>
-      registerTablePlugin(editor, {
-        hasFitNestedTables: hasFitNestedTablesSignal,
-        hasNestedTables: hasNestedTablesSignal,
-      }),
-    [editor, hasNestedTablesSignal, hasFitNestedTablesSignal],
+    () => registerTablePlugin(editor, {hasNestedTables: hasNestedTablesSignal}),
+    [editor, hasNestedTablesSignal],
   );
 
   useEffect(

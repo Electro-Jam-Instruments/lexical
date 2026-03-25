@@ -532,7 +532,7 @@ export function registerAutoLink(
     editor.registerNodeTransform(TextNode, (textNode: TextNode) => {
       const parent = textNode.getParentOrThrow();
       const previous = textNode.getPreviousSibling();
-      if ($isAutoLinkNode(parent) && !parent.getIsUnlinked()) {
+      if ($isAutoLinkNode(parent)) {
         handleLinkEdit(parent, matchers, onChange);
       } else if (
         !$isLinkNode(parent) &&
@@ -569,6 +569,7 @@ export function registerAutoLink(
         });
         return false;
       },
+      // Has to be higher than TOGGLE_LINK_COMMAND in LinkExtension
       COMMAND_PRIORITY_LOW,
     ),
   );
