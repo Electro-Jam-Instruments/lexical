@@ -92,6 +92,10 @@ import {
 } from './LexicalSelection';
 import {getActiveEditor, updateEditorSync} from './LexicalUpdates';
 import {
+  isNativeArrowKeyNavigating,
+  setNativeArrowKeyNavigating,
+} from './LexicalUpdateTags';
+import {
   $addUpdateTag,
   $findMatchingParent,
   $flushMutations,
@@ -195,19 +199,10 @@ const rootElementToDocument = new WeakMap<HTMLElement, Document>();
 const rootElementsRegistered = new WeakMap<Document, number>();
 let isSelectionChangeFromDOMUpdate = false;
 let isSelectionChangeFromMouseDown = false;
-// ACCESSIBILITY: Set when an arrow key is handled natively (no Lexical handler
-// claimed it). The subsequent selectionchange event should NOT mark selection
-// dirty for format/style changes, because that would cause Lexical to write
-// selection back to DOM, overriding the browser's native cursor placement and
-// causing the insertion point to "jump."
-//
-// IMPORTANT: This flag must persist across ALL synchronous update cycles
-// triggered by the arrow key (including transform-triggered re-commits and
-// scrollIntoView-triggered selectionchanges). We use setTimeout(..., 0) to
-// clear it at the END of the current event loop, not immediately after the
-// first selectionchange.
-let isSelectionChangeFromNativeArrowKey = false;
-let nativeArrowKeyResetTimeout: ReturnType<typeof setTimeout> | null = null;
+// ACCESSIBILITY: Native arrow key navigation flag is now in LexicalUpdateTags.ts
+// (shared module) so both LexicalUpdates.ts and LexicalMutations.ts can read it
+// without circular imports. See setNativeArrowKeyNavigating() and
+// isNativeArrowKeyNavigating() imported above.
 let isInsertLineBreak = false;
 let isFirefoxEndingComposition = false;
 let isSafariEndingComposition = false;
@@ -221,22 +216,7 @@ let collapsedSelectionFormat: [number, string, number, NodeKey, number] = [
   0,
 ];
 
-// ACCESSIBILITY: Helper to set the native arrow key flag and schedule its
-// reset at the end of the event loop. This ensures the flag persists across
-// all synchronous update cycles (transforms, scrollIntoView, etc.) but is
-// cleared before the next user interaction.
-function $setNativeArrowKeyFlag(): void {
-  isSelectionChangeFromNativeArrowKey = true;
-  // Clear any existing timeout to avoid duplicate clears
-  if (nativeArrowKeyResetTimeout !== null) {
-    clearTimeout(nativeArrowKeyResetTimeout);
-  }
-  // Schedule the reset at the end of the current event loop
-  nativeArrowKeyResetTimeout = setTimeout(() => {
-    isSelectionChangeFromNativeArrowKey = false;
-    nativeArrowKeyResetTimeout = null;
-  }, 0);
-}
+// $setNativeArrowKeyFlag moved to LexicalUpdateTags.ts as setNativeArrowKeyNavigating()
 
 // This function is used to determine if Lexical should attempt to override
 // the default browser behavior for insertion of text and use its own internal
@@ -390,15 +370,15 @@ function onSelectionChange(
     // already placed the cursor correctly; updating format/style causes
     // Lexical to write selection back to DOM, making the cursor jump.
     //
-    // NOTE: We do NOT reset isSelectionChangeFromNativeArrowKey here.
+    // NOTE: We do NOT reset isNativeArrowKeyNavigating() here.
     // It persists for the entire event loop to cover:
     // 1. Transform-triggered re-commits
     // 2. scrollIntoView-triggered additional selectionchanges
     // 3. Any other synchronous update cycles
     // The flag is cleared via setTimeout(..., 0) scheduled when the arrow
     // key is first pressed (see $handleKeyDown).
-    const skipFormatUpdate = isSelectionChangeFromNativeArrowKey;
-    if (isSelectionChangeFromNativeArrowKey) {
+    const skipFormatUpdate = isNativeArrowKeyNavigating();
+    if (isNativeArrowKeyNavigating()) {
       // Still add the tags to this update cycle too, so the commit
       // path also skips DOM selection writeback AND scrollIntoView.
       // The browser handles both cursor placement and scroll-into-view
@@ -1271,26 +1251,26 @@ function $handleKeyDown(event: KeyboardEvent): boolean {
     // changes, which would cause a second writeback.
     if (!dispatchCommand(editor, KEY_ARROW_RIGHT_COMMAND, event)) {
       $addUpdateTag(SKIP_DOM_SELECTION_TAG);
-      $setNativeArrowKeyFlag();
+      setNativeArrowKeyNavigating();
     }
   } else if (isMoveToEnd(event)) {
     dispatchCommand(editor, MOVE_TO_END, event);
   } else if (isMoveBackward(event)) {
     if (!dispatchCommand(editor, KEY_ARROW_LEFT_COMMAND, event)) {
       $addUpdateTag(SKIP_DOM_SELECTION_TAG);
-      $setNativeArrowKeyFlag();
+      setNativeArrowKeyNavigating();
     }
   } else if (isMoveToStart(event)) {
     dispatchCommand(editor, MOVE_TO_START, event);
   } else if (isMoveUp(event)) {
     if (!dispatchCommand(editor, KEY_ARROW_UP_COMMAND, event)) {
       $addUpdateTag(SKIP_DOM_SELECTION_TAG);
-      $setNativeArrowKeyFlag();
+      setNativeArrowKeyNavigating();
     }
   } else if (isMoveDown(event)) {
     if (!dispatchCommand(editor, KEY_ARROW_DOWN_COMMAND, event)) {
       $addUpdateTag(SKIP_DOM_SELECTION_TAG);
-      $setNativeArrowKeyFlag();
+      setNativeArrowKeyNavigating();
     }
   } else if (isLineBreak(event)) {
     isInsertLineBreak = true;
@@ -1642,12 +1622,10 @@ export function markSelectionChangeFromDOMUpdate(): void {
 }
 
 // ACCESSIBILITY: Getter for the native arrow key flag. Used by
-// LexicalMutations.ts to prevent flushMutations from reverting
-// selection during native arrow key navigation. The MutationObserver
-// is a SEPARATE pathway from $commitPendingUpdates and does NOT
-// check SKIP_DOM_SELECTION_TAG.
+// DEPRECATED: Use isNativeArrowKeyNavigating() from LexicalUpdateTags instead.
+// Kept for backwards compatibility with any external consumers.
 export function isNativeArrowKeyMovement(): boolean {
-  return isSelectionChangeFromNativeArrowKey;
+  return isNativeArrowKeyNavigating();
 }
 
 export function markCollapsedSelectionFormat(

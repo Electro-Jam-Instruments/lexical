@@ -73,6 +73,30 @@ export const COMPOSITION_START_TAG = 'composition-start';
  */
 export const COMPOSITION_END_TAG = 'composition-end';
 
+// ACCESSIBILITY: Global flag indicating native arrow key navigation is in
+// progress. Set by LexicalEvents when an arrow key falls through to browser
+// defaults. Read by LexicalUpdates and LexicalMutations to skip DOM selection
+// overwrites from ANY update cycle (not just the selectionchange handler).
+// This catches React re-render-triggered reconciliations that lack the
+// SKIP_DOM_SELECTION_TAG. Cleared via setTimeout(0) at end of event loop.
+let _isNativeArrowKeyNavigating = false;
+let _nativeArrowKeyTimeout: ReturnType<typeof setTimeout> | null = null;
+
+export function setNativeArrowKeyNavigating(): void {
+  _isNativeArrowKeyNavigating = true;
+  if (_nativeArrowKeyTimeout !== null) {
+    clearTimeout(_nativeArrowKeyTimeout);
+  }
+  _nativeArrowKeyTimeout = setTimeout(() => {
+    _isNativeArrowKeyNavigating = false;
+    _nativeArrowKeyTimeout = null;
+  }, 0);
+}
+
+export function isNativeArrowKeyNavigating(): boolean {
+  return _isNativeArrowKeyNavigating;
+}
+
 /**
  * The set of known update tags to help with TypeScript suggestions.
  */

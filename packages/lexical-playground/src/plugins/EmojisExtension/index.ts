@@ -6,9 +6,8 @@
  *
  */
 
-import {defineExtension, TextNode} from 'lexical';
-
 import {AccessibleTextNode} from '@lexical/accessibility';
+import {defineExtension, TextNode} from 'lexical';
 
 import {$createEmojiNode} from '../../nodes/EmojiNode';
 

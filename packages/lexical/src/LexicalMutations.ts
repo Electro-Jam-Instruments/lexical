@@ -21,8 +21,8 @@ import {
   $isTextNode,
   $setSelection,
 } from '.';
-import {isNativeArrowKeyMovement} from './LexicalEvents';
 import {updateEditorSync} from './LexicalUpdates';
+import {isNativeArrowKeyNavigating} from './LexicalUpdateTags';
 import {
   $getNodeByKey,
   $getNodeFromDOMNode,
@@ -299,7 +299,7 @@ function flushMutations(
         // The isNativeArrowKeyMovement() flag is cleared via setTimeout(0)
         // at the end of the event loop, so it's still set when this
         // microtask-scheduled MutationObserver callback fires.
-        if (shouldRevertSelection && !isNativeArrowKeyMovement()) {
+        if (shouldRevertSelection && !isNativeArrowKeyNavigating()) {
           $setSelection(selection);
         }
 

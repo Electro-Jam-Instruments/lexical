@@ -24,6 +24,7 @@ import {
   COMMAND_PRIORITY_LOW,
   INDENT_CONTENT_COMMAND,
   INSERT_PARAGRAPH_COMMAND,
+  isNativeArrowKeyNavigating,
   KEY_BACKSPACE_COMMAND,
   KEY_DELETE_COMMAND,
   KEY_ENTER_COMMAND,
@@ -151,6 +152,12 @@ export function AccessibilityPlugin({
     const unregisterTransform = editor.registerNodeTransform(
       TextNode,
       (node) => {
+        // ACCESSIBILITY: Skip transform during arrow key navigation to avoid
+        // dirtying nodes and triggering extra reconciliation cycles that could
+        // overwrite the browser's native cursor placement.
+        if (isNativeArrowKeyNavigating()) {
+          return;
+        }
         // Only transform base TextNode, not subclasses (including AccessibleTextNode)
         if (node.getType() === 'text') {
           const accessibleNode = $createAccessibleTextNode(

@@ -11,7 +11,7 @@ echo "========================================"
 # These accumulate and cause "inaccessible 'this' type" errors during build
 echo ""
 echo "Step 1: Cleaning stale build artifacts..."
-rm -rf packages/lexical-extension/dist packages/lexical-list/dist packages/lexical-overflow/dist
+rm -rf packages/lexical-extension/dist packages/lexical-list/dist packages/lexical-overflow/dist packages/lexical-code-core/dist packages/lexical-code-prism/dist packages/lexical-code-shiki/dist
 # Clean stale bundle files from lexical-list (common source of TS2527 errors)
 rm -f packages/lexical-list/*.dev.js packages/lexical-list/*.prod.js
 rm -f packages/lexical-list/*.dev.mjs packages/lexical-list/*.prod.mjs
@@ -30,6 +30,10 @@ PACKAGES=(
   "lexical-accessibility"
   "lexical-clipboard"
   "lexical-code"
+  "lexical-code-core"
+  "lexical-code-prism"
+  "lexical-code-shiki"
+  "lexical-extension"
   "lexical-history"
   "lexical-html"
   "lexical-image"

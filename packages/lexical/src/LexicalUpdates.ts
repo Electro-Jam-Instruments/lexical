@@ -49,7 +49,7 @@ import {
   applySelectionTransforms,
   updateDOMSelection,
 } from './LexicalSelection';
-import {FOCUS_TAG} from './LexicalUpdateTags';
+import {FOCUS_TAG,isNativeArrowKeyNavigating} from './LexicalUpdateTags';
 import {
   $getCompositionKey,
   getDOMSelection,
@@ -661,6 +661,10 @@ export function $commitPendingUpdates(
       !pendingSelection.is(currentSelection)) &&
     rootElement !== null &&
     !tags.has(SKIP_DOM_SELECTION_TAG) &&
+    // ACCESSIBILITY: During native arrow key navigation, skip DOM selection
+    // overwrite from ANY update cycle — not just the selectionchange handler.
+    // This catches React re-render-triggered updates that don't carry the tag.
+    !isNativeArrowKeyNavigating() &&
     // ACCESSIBILITY: Only update DOM selection if this editor has focus,
     // OR if this is an explicit focus request (editor.focus() was called)
     (editorHasFocus || isExplicitFocusRequest)
