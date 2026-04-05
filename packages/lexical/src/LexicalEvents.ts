@@ -1247,31 +1247,35 @@ function $handleKeyDown(event: KeyboardEvent): boolean {
     // skip DOM selection reconciliation so Lexical doesn't write the OLD
     // selection back to DOM via microtask, causing a cursor "bounce" that
     // confuses screen readers like NVDA. Also flag that the subsequent
-    // selectionchange should not mark selection dirty for format/style
-    // changes, which would cause a second writeback.
-    if (!dispatchCommand(editor, KEY_ARROW_RIGHT_COMMAND, event)) {
-      $addUpdateTag(SKIP_DOM_SELECTION_TAG);
-      setNativeArrowKeyNavigating();
-    }
+    // ACCESSIBILITY: Always set the native arrow key flag BEFORE dispatching.
+    // Many handlers (rich-text decorator boundaries, code block edges, list
+    // items, tables) return true to "claim" the event but still rely on the
+    // browser's native cursor movement. If we only set the flag when no
+    // handler claims the event, those cases lose the guard and the cursor
+    // bounces when Lexical reconciles.
+    //
+    // Handlers that truly override native movement (e.g., Alt+Arrow to shift
+    // code lines) call event.preventDefault() — the browser won't move the
+    // cursor natively in that case, so the flag is harmless.
+    $addUpdateTag(SKIP_DOM_SELECTION_TAG);
+    setNativeArrowKeyNavigating();
+    dispatchCommand(editor, KEY_ARROW_RIGHT_COMMAND, event);
   } else if (isMoveToEnd(event)) {
     dispatchCommand(editor, MOVE_TO_END, event);
   } else if (isMoveBackward(event)) {
-    if (!dispatchCommand(editor, KEY_ARROW_LEFT_COMMAND, event)) {
-      $addUpdateTag(SKIP_DOM_SELECTION_TAG);
-      setNativeArrowKeyNavigating();
-    }
+    $addUpdateTag(SKIP_DOM_SELECTION_TAG);
+    setNativeArrowKeyNavigating();
+    dispatchCommand(editor, KEY_ARROW_LEFT_COMMAND, event);
   } else if (isMoveToStart(event)) {
     dispatchCommand(editor, MOVE_TO_START, event);
   } else if (isMoveUp(event)) {
-    if (!dispatchCommand(editor, KEY_ARROW_UP_COMMAND, event)) {
-      $addUpdateTag(SKIP_DOM_SELECTION_TAG);
-      setNativeArrowKeyNavigating();
-    }
+    $addUpdateTag(SKIP_DOM_SELECTION_TAG);
+    setNativeArrowKeyNavigating();
+    dispatchCommand(editor, KEY_ARROW_UP_COMMAND, event);
   } else if (isMoveDown(event)) {
-    if (!dispatchCommand(editor, KEY_ARROW_DOWN_COMMAND, event)) {
-      $addUpdateTag(SKIP_DOM_SELECTION_TAG);
-      setNativeArrowKeyNavigating();
-    }
+    $addUpdateTag(SKIP_DOM_SELECTION_TAG);
+    setNativeArrowKeyNavigating();
+    dispatchCommand(editor, KEY_ARROW_DOWN_COMMAND, event);
   } else if (isLineBreak(event)) {
     isInsertLineBreak = true;
     dispatchCommand(editor, KEY_ENTER_COMMAND, event);
