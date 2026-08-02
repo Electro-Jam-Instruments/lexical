@@ -6,7 +6,12 @@
  *
  */
 
-import {ElementTransformer, Transformer, TRANSFORMERS} from '@lexical/markdown';
+import {
+  type ElementTransformer,
+  TABLE,
+  type Transformer,
+  TRANSFORMERS,
+} from '@lexical/markdown';
 import {
   $createHorizontalRuleNode,
   $isHorizontalRuleNode,
@@ -45,16 +50,26 @@ export const HR: ElementTransformer = {
  * Extended transformers for accessibility plugin.
  *
  * Includes all standard @lexical/markdown TRANSFORMERS plus:
+ * - TABLE - converts `| a | b |` pipe tables to/from TableNode
  * - HR (Horizontal Rule) - converts ---, ***, ___ to horizontal rules
  *
- * Use this as the default for markdown paste operations, or pass
- * your own custom transformers array to override.
+ * Neither is in the default @lexical/markdown TRANSFORMERS: HorizontalRuleNode
+ * lives in @lexical/react, and TABLE depends on the @lexical/table nodes.
+ *
+ * TABLE is first so pipe-table rows are matched before the paragraph-level
+ * transformers get a chance to claim the line.
+ *
+ * REQUIREMENT: because TABLE declares TableNode, TableRowNode and TableCellNode
+ * as dependencies, the editor MUST register those nodes. registerMarkdownShortcuts
+ * throws if a transformer's dependencies are missing. If your editor has no
+ * tables, use `ACCESSIBILITY_TRANSFORMERS.filter((t) => t !== TABLE)` or build
+ * your own array from `[HR, ...TRANSFORMERS]`.
  *
  * @example
  * ```tsx
  * import { ACCESSIBILITY_TRANSFORMERS } from '@lexical/accessibility';
  *
- * // Use directly
+ * // Use directly (editor must register TableNode/TableRowNode/TableCellNode)
  * $convertFromMarkdownString(text, ACCESSIBILITY_TRANSFORMERS);
  *
  * // Or extend with app-specific transformers
@@ -62,6 +77,7 @@ export const HR: ElementTransformer = {
  * ```
  */
 export const ACCESSIBILITY_TRANSFORMERS: Array<Transformer> = [
+  TABLE,
   HR,
   ...TRANSFORMERS,
 ];

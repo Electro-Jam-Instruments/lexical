@@ -1119,8 +1119,15 @@ export const LINK: TextMatchTransformer = {
 
 // TABLE transformer is included in ELEMENT_TRANSFORMERS.
 // Cell content uses CELL_TRANSFORMERS (text formatting only) to prevent recursion.
+// NOTE: TABLE is deliberately NOT included here. It declares TableNode,
+// TableRowNode and TableCellNode as dependencies, and registerMarkdownShortcuts
+// throws an invariant if a transformer's node dependencies are not registered
+// in the editor. Including it would make every consumer of the default
+// TRANSFORMERS crash unless they register the table nodes. Upstream keeps its
+// equivalent transformer out of this package for the same reason. Opt in via
+// `[TABLE, ...TRANSFORMERS]`, or use ACCESSIBILITY_TRANSFORMERS from
+// @lexical/accessibility, which bundles it.
 export const ELEMENT_TRANSFORMERS: ElementTransformer[] = [
-  TABLE,
   HEADING,
   QUOTE,
   UNORDERED_LIST,
