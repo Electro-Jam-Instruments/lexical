@@ -7,6 +7,7 @@
  */
 
 import {
+  AriaLiveRegionExtension,
   EditorModeAnnounceExtension,
   FocusManagerExtension,
   FocusTrapExtension,
@@ -263,6 +264,12 @@ const AppExtension = /* @__PURE__ */ defineExtension({
     // registerSettingsSynchronization to drive ClickableLinkExtension.
     WatchEditableExtension,
     HistoryExtension,
+    // ACCESSIBILITY: make the live region explicit rather than relying on it
+    // arriving transitively via the two announce extensions below. `polite` so
+    // announcements queue rather than interrupting the screen reader.
+    /* @__PURE__ */ configExtension(AriaLiveRegionExtension, {
+      politeness: 'polite',
+    }),
     HistoryAnnounceExtension,
     EditorModeAnnounceExtension,
     KeywordsExtension,

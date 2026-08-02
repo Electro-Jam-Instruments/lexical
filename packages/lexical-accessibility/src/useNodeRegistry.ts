@@ -81,6 +81,21 @@ export function useNodeRegistry({
     const unregisterFns: Array<() => void> = [];
 
     configs.forEach((config) => {
+      // A config describes a node type the host editor may or may not have.
+      // registerNodeTransform/registerMutationListener throw a hard invariant
+      // for an unregistered node, so an editor without (say) headings would
+      // crash on mount rather than simply not announcing them.
+      //
+      // Skip instead. Each config carries its own nodeClass, so this needs no
+      // mapping table - it just asks the config whether its node is present.
+      //
+      // Silent by design: an editor without headings is a valid configuration,
+      // not a mistake, and the default config set includes every node type. A
+      // warning here would fire on every mount of a plain-text editor.
+      if (!editor.hasNode(config.nodeClass)) {
+        return;
+      }
+
       const getContext = (): AnnouncementContext => ({
         isEnterOnEmpty: isEnterOnEmptyRef.current,
         isIndentOperation: isIndentOperationRef.current,

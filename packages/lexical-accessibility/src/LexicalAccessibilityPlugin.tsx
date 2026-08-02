@@ -92,6 +92,7 @@ const IS_CODE = 1 << 4; // 16
 export function AccessibilityPlugin({
   config = {},
   transformers = ACCESSIBILITY_TRANSFORMERS,
+  nodeConfigs: enabledNodeConfigs = nodeConfigs,
   additionalNodeConfigs = [],
 }: AccessibilityPluginProps): null {
   const [editor] = useLexicalComposerContext();
@@ -101,10 +102,11 @@ export function AccessibilityPlugin({
     [config],
   );
 
-  // Combine built-in node configs with any additional configs (e.g., EmojiNode)
+  // Enabled built-in configs (all of them unless the caller narrowed the set)
+  // plus any custom configs such as EmojiNode.
   const allNodeConfigs = useMemo(
-    () => [...nodeConfigs, ...additionalNodeConfigs],
-    [additionalNodeConfigs],
+    () => [...enabledNodeConfigs, ...additionalNodeConfigs],
+    [enabledNodeConfigs, additionalNodeConfigs],
   );
 
   // Announcements go through upstream's AriaLiveRegionExtension rather than a

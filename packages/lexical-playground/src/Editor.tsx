@@ -6,6 +6,7 @@
  *
  */
 
+import {AccessibilityPlugin, headingConfig} from '@lexical/accessibility';
 import {CharacterLimitPlugin} from '@lexical/react/LexicalCharacterLimitPlugin';
 import {useLexicalComposerContext} from '@lexical/react/LexicalComposerContext';
 import {CAN_USE_DOM, registerEventListener} from 'lexical';
@@ -112,6 +113,21 @@ export default function Editor(): JSX.Element {
         className={`editor-container ${showTreeView ? 'tree-view' : ''} ${
           !isRichText ? 'plain-text' : ''
         }`}>
+        {/*
+          ACCESSIBILITY: screen-reader announcement engine.
+
+          Node types are switched on one at a time, so any regression is
+          attributable to exactly one of them. A config whose node is not
+          registered in this editor is skipped, not an error.
+
+          Enabled so far:
+            - headingConfig: "Heading level 2" on becoming a heading,
+              "Changed to paragraph" on leaving one.
+
+          Announces through AriaLiveRegionExtension, configured `polite` in
+          App.tsx.
+        */}
+        <AccessibilityPlugin nodeConfigs={[headingConfig]} />
         <ComponentPickerPlugin />
         <EmojiPickerPlugin />
         <AutoEmbedPlugin />

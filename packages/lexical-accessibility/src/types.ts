@@ -56,6 +56,27 @@ export interface AccessibilityConfig {
 export interface AccessibilityPluginProps {
   config?: AccessibilityConfig;
   /**
+   * Which built-in node announcement configs to enable.
+   *
+   * Defaults to all of them (heading, list item, code block, quote, horizontal
+   * rule). Pass an explicit array to enable only some — useful for adopting
+   * announcements one node type at a time, or for skipping a type whose
+   * announcements you want to provide yourself.
+   *
+   * Pass `[]` to disable all built-ins and rely solely on
+   * `additionalNodeConfigs`.
+   *
+   * @example
+   * ```tsx
+   * import {headingConfig, listItemConfig} from '@lexical/accessibility';
+   *
+   * // headings and lists only
+   * <AccessibilityPlugin nodeConfigs={[headingConfig, listItemConfig]} />
+   * ```
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  nodeConfigs?: NodeAnnouncementConfig<any>[];
+  /**
    * Custom markdown transformers for paste operations.
    * Defaults to ACCESSIBILITY_TRANSFORMERS which includes HR + standard transformers.
    * Pass your own array to add app-specific transformers or override defaults.
