@@ -588,6 +588,39 @@ importers:
         specifier: '>=5.2'
         version: 6.0.3
 
+  packages/lexical-accessibility:
+    dependencies:
+      '@lexical/code':
+        specifier: workspace:*
+        version: link:../lexical-code
+      '@lexical/link':
+        specifier: workspace:*
+        version: link:../lexical-link
+      '@lexical/list':
+        specifier: workspace:*
+        version: link:../lexical-list
+      '@lexical/markdown':
+        specifier: workspace:*
+        version: link:../lexical-markdown
+      '@lexical/react':
+        specifier: workspace:*
+        version: link:../lexical-react
+      '@lexical/rich-text':
+        specifier: workspace:*
+        version: link:../lexical-rich-text
+      lexical:
+        specifier: workspace:*
+        version: link:../lexical
+      react:
+        specifier: 19.2.5
+        version: 19.2.5
+      react-dom:
+        specifier: 19.2.5
+        version: 19.2.5(react@19.2.5)
+      typescript:
+        specifier: '>=5.2'
+        version: 6.0.3
+
   packages/lexical-clipboard:
     dependencies:
       '@lexical/extension':
@@ -937,6 +970,30 @@ importers:
         specifier: '>=5.2'
         version: 6.0.3
 
+  packages/lexical-image:
+    dependencies:
+      '@lexical/react':
+        specifier: workspace:*
+        version: link:../lexical-react
+      '@lexical/rich-text':
+        specifier: workspace:*
+        version: link:../lexical-rich-text
+      '@lexical/utils':
+        specifier: workspace:*
+        version: link:../lexical-utils
+      lexical:
+        specifier: workspace:*
+        version: link:../lexical
+      react:
+        specifier: 19.2.5
+        version: 19.2.5
+      react-dom:
+        specifier: 19.2.5
+        version: 19.2.5(react@19.2.5)
+      typescript:
+        specifier: '>=5.2'
+        version: 6.0.3
+
   packages/lexical-internal:
     dependencies:
       typescript:
@@ -1017,6 +1074,9 @@ importers:
       '@lexical/selection':
         specifier: workspace:*
         version: link:../lexical-selection
+      '@lexical/table':
+        specifier: workspace:*
+        version: link:../lexical-table
       '@lexical/text':
         specifier: workspace:*
         version: link:../lexical-text

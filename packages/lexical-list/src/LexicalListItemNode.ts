@@ -585,7 +585,12 @@ function $setListItemThemeClassNames(
   const isCheckList =
     $isListNode(parentNode) && parentNode.getListType() === 'check';
   const checked = node.getChecked();
-  const isNested = node.getChildren().some(child => $isListNode(child));
+  // ACCESSIBILITY: only treat an li as a nested-list *wrapper* when the list is
+  // its FIRST child. Upstream checks whether any child is a ListNode, which also
+  // matches the accessible structure <li>Text<ol><li>nested</li></ol></li> and
+  // hides that item's marker. Screen readers rely on the marker to announce the
+  // item, so only the legacy empty-wrapper form should get the nested class.
+  const isNested = $isNestedListNode(node);
 
   // Always remove the variable theme classes first so that the className
   // string stays in a canonical order regardless of how the dom got here
@@ -599,16 +604,7 @@ function $setListItemThemeClassNames(
     classesToRemove.push(listTheme.listitemUnchecked);
   }
   if (nestedListItemClassName !== undefined) {
-    // ACCESSIBILITY: Only apply the nested class to EMPTY wrapper li elements
-    // (where the first child is a ListNode). This preserves markers for list
-    // items that have both text content AND a nested list, i.e. the accessible
-    // structure: <li>Text<ol><li>nested</li></ol></li>
-    const nestedListItemClasses = normalizeClassNames(nestedListItemClassName);
-    if ($isNestedListNode(node)) {
-      classesToAdd.push(...nestedListItemClasses);
-    } else {
-      classesToRemove.push(...nestedListItemClasses);
-    }
+    classesToRemove.push(...normalizeClassNames(nestedListItemClassName));
   }
   if (classesToRemove.length > 0) {
     removeClassNamesFromElement(dom, ...classesToRemove);

@@ -35,7 +35,7 @@ import {
   $createImageNode,
   $isImageNode,
   ImageNode,
-  ImagePayload,
+  type ImagePayload,
 } from './ImageNode';
 
 export type InsertImagePayload = Readonly<ImagePayload>;

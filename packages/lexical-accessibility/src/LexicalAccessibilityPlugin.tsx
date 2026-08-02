@@ -31,9 +31,14 @@ import {
   LexicalNode,
   OUTDENT_CONTENT_COMMAND,
   PASTE_COMMAND,
+  type PasteCommandType,
   TextNode,
 } from 'lexical';
 import {useEffect, useMemo, useRef} from 'react';
+
+// Upstream removed the ambient __DEV__ global in v0.49.0; packages now derive
+// it locally (see packages/lexical/src/LexicalEditor.ts).
+const __DEV__ = process.env.NODE_ENV !== 'production';
 
 import {AccessibilityLiveRegion} from './AccessibilityLiveRegion';
 import {
@@ -53,7 +58,7 @@ import {
 import {setSuppressingAnnouncements} from './suppressionState';
 import {ACCESSIBILITY_TRANSFORMERS} from './transformers';
 import {
-  AccessibilityPluginProps,
+  type AccessibilityPluginProps,
   DEFAULT_CONFIG,
   SUPPRESS_A11Y_ANNOUNCEMENTS_TAG,
 } from './types';
@@ -456,8 +461,11 @@ export function AccessibilityPlugin({
 
     const unregisterPaste = editor.registerCommand(
       PASTE_COMMAND,
-      (event: ClipboardEvent) => {
-        const clipboardData = event.clipboardData;
+      (event: PasteCommandType) => {
+        // PASTE_COMMAND is dispatched with ClipboardEvent | InputEvent |
+        // KeyboardEvent; only the clipboard variant carries the data we need.
+        const clipboardData =
+          event instanceof ClipboardEvent ? event.clipboardData : null;
         if (!clipboardData) {
           return false;
         }
