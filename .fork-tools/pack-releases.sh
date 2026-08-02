@@ -1,5 +1,13 @@
 #!/bin/bash
 # Script to build and pack all Lexical packages for GitHub release
+#
+# LAYOUT NOTE (v0.49.0+):
+# Upstream PR #8554 ("Publish packages from their root directory") changed the
+# publish layout. Packages now ship their build output in `dist/`, and each
+# package.json points `main`/`module`/`exports` at `./dist/...` with a
+# `files: ["dist", "src", ...]` allowlist. The old Step 3 that copied
+# `dist/*` up into the package root is therefore GONE — doing that now would
+# duplicate every bundle into the tarball.
 
 set -e
 
@@ -7,62 +15,71 @@ echo "========================================"
 echo "Lexical Accessibility Fork - Build & Pack"
 echo "========================================"
 
-# Step 1: Clean stale dist folders and bundle files that cause TS errors
-# These accumulate and cause "inaccessible 'this' type" errors during build
-echo ""
-echo "Step 1: Cleaning stale build artifacts..."
-rm -rf packages/lexical-extension/dist packages/lexical-list/dist packages/lexical-overflow/dist packages/lexical-code-core/dist packages/lexical-code-prism/dist packages/lexical-code-shiki/dist
-# Clean stale bundle files from lexical-list (common source of TS2527 errors)
-rm -f packages/lexical-list/*.dev.js packages/lexical-list/*.prod.js
-rm -f packages/lexical-list/*.dev.mjs packages/lexical-list/*.prod.mjs
-
-# Step 2: Run production build
-echo ""
-echo "Step 2: Running production build..."
-npm run build -- --prod --release
-
-# Step 3: Copy dist files to package roots (required for npm pack)
-echo ""
-echo "Step 3: Copying dist files to package roots..."
-
+# Packages shipped in our releases: the transitive closure of everything the
+# consuming project pulls in via @lexical/accessibility and @lexical/image.
 PACKAGES=(
   "lexical"
+  "lexical-a11y"
   "lexical-accessibility"
   "lexical-clipboard"
   "lexical-code"
   "lexical-code-core"
   "lexical-code-prism"
   "lexical-code-shiki"
+  "lexical-devtools-core"
+  "lexical-dragon"
   "lexical-extension"
+  "lexical-hashtag"
   "lexical-history"
   "lexical-html"
   "lexical-image"
+  "lexical-internal"
   "lexical-link"
   "lexical-list"
+  "lexical-mark"
   "lexical-markdown"
   "lexical-offset"
+  "lexical-overflow"
+  "lexical-plain-text"
   "lexical-react"
   "lexical-rich-text"
   "lexical-selection"
   "lexical-table"
   "lexical-text"
   "lexical-utils"
+  "lexical-yjs"
 )
 
+# Step 1: Clean stale build artifacts
+# Stale dist folders and leftover root-level bundles from the pre-v0.49 flat
+# layout cause "inaccessible 'this' type" (TS2527) errors during the build.
+echo ""
+echo "Step 1: Cleaning stale build artifacts..."
 for pkg in "${PACKAGES[@]}"; do
   PKG_DIR="packages/$pkg"
-  if [ -d "$PKG_DIR/dist" ]; then
-    echo "  Copying dist files for $pkg..."
-    cp -r "$PKG_DIR/dist/"* "$PKG_DIR/"
-  fi
+  [ -d "$PKG_DIR" ] || continue
+  rm -rf "$PKG_DIR/dist"
+  # Leftovers from the old flat layout (pre-v0.49.0) sitting at the package root.
+  # Guarded by git: only remove what is NOT tracked, so we never delete the
+  # committed CommonJS entry shim (e.g. packages/lexical/Lexical.js).
+  for f in "$PKG_DIR"/*.dev.js "$PKG_DIR"/*.prod.js "$PKG_DIR"/*.dev.mjs \
+           "$PKG_DIR"/*.prod.mjs "$PKG_DIR"/*.node.mjs "$PKG_DIR"/*.d.ts; do
+    [ -e "$f" ] || continue
+    git ls-files --error-unmatch "$f" >/dev/null 2>&1 || rm -f "$f"
+  done
 done
 
-# Step 3b: Resolve workspace:* in package.json dependencies
-# npm pack does NOT resolve workspace:* protocol - consuming projects
+# Step 2: Run production build
+echo ""
+echo "Step 2: Running production build..."
+npm run build -- --prod --release
+
+# Step 3: Resolve workspace:* in package.json dependencies
+# npm pack does NOT resolve the workspace:* protocol - consuming projects
 # outside the monorepo will get EUNSUPPORTEDPROTOCOL errors.
 # Read the monorepo version and replace all workspace:* references.
 echo ""
-echo "Step 3b: Resolving workspace:* dependencies..."
+echo "Step 3: Resolving workspace:* dependencies..."
 MONOREPO_VERSION=$(node -e "console.log(require('./package.json').version)")
 echo "  Monorepo version: $MONOREPO_VERSION"
 
@@ -86,10 +103,12 @@ mkdir -p "$RELEASE_DIR"
 for pkg in "${PACKAGES[@]}"; do
   PKG_DIR="packages/$pkg"
   if [ -d "$PKG_DIR" ]; then
+    if [ ! -d "$PKG_DIR/dist" ]; then
+      echo "  ERROR: $PKG_DIR/dist missing - build did not produce output for $pkg"
+      exit 1
+    fi
     echo "  Packing $pkg..."
-    cd "$PKG_DIR"
-    npm pack --pack-destination "../../$RELEASE_DIR" 2>/dev/null
-    cd ../..
+    (cd "$PKG_DIR" && npm pack --pack-destination "../../$RELEASE_DIR" >/dev/null)
   else
     echo "  WARNING: $PKG_DIR not found, skipping"
   fi
@@ -117,6 +136,9 @@ ls -la "$RELEASE_DIR"/*.tgz
 echo ""
 echo "Total packages: $(ls "$RELEASE_DIR"/*.tgz | wc -l)"
 echo ""
-echo "Next steps:"
-echo "1. Delete old release: gh release delete v0.38.2-a11y.1 --repo Electro-Jam-Instruments/lexical -y"
-echo "2. Create new release: gh release create v0.38.2-a11y.2 --title \"...\" --notes \"...\" --repo Electro-Jam-Instruments/lexical releases/*.tgz"
+echo "Next steps (see .fork-tools/PUBLISHING.md):"
+echo "  gh release create v0.49.0-a11y.1 \\"
+echo "    --repo Electro-Jam-Instruments/lexical \\"
+echo "    --title \"Lexical v0.49.0 - Accessibility Fork #1\" \\"
+echo "    --notes \"...\" \\"
+echo "    releases/*.tgz"

@@ -25,11 +25,11 @@ import {
   $getRoot,
   $getSelection,
   $isRangeSelection,
-  LexicalEditor,
+  type LexicalEditor,
 } from 'lexical';
 import * as React from 'react';
-import {createRoot, Root} from 'react-dom/client';
-import * as ReactTestUtils from 'shared/react-test-utils';
+import {act} from 'react';
+import {createRoot, type Root} from 'react-dom/client';
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 
 const RICH_TEXT_NODES = [
@@ -85,7 +85,7 @@ describe('LexicalNodeHelpers tests', () => {
               editorState: $initialEditorState,
               namespace: '',
               nodes: plugin === 'PlainTextPlugin' ? [] : RICH_TEXT_NODES,
-              onError: (err) => {
+              onError: err => {
                 throw err;
               },
               theme: {},
@@ -108,11 +108,11 @@ describe('LexicalNodeHelpers tests', () => {
         );
       }
 
-      await ReactTestUtils.act(async () => {
+      await act(async () => {
         reactRoot.render(<App />);
       });
 
-      const text = editor!.getEditorState().read($rootTextContent);
+      const text = editor!.read('latest', $rootTextContent);
       expect(text).toBe('foo');
     });
   }
@@ -136,7 +136,7 @@ describe('LexicalNodeHelpers tests', () => {
               editorState: initialEditorStateJson,
               namespace: '',
               nodes: plugin === 'PlainTextPlugin' ? [] : RICH_TEXT_NODES,
-              onError: (err) => {
+              onError: err => {
                 throw err;
               },
               theme: {},
@@ -159,13 +159,13 @@ describe('LexicalNodeHelpers tests', () => {
         );
       }
 
-      await ReactTestUtils.act(async () => {
+      await act(async () => {
         reactRoot.render(<App />);
       });
 
       await editor!.focus();
 
-      await editor!.getEditorState().read(() => {
+      await editor!.read('latest', () => {
         expect($rootTextContent()).toBe('foo');
 
         const selection = $getSelection();
@@ -195,7 +195,7 @@ describe('LexicalNodeHelpers tests', () => {
             initialConfig={{
               namespace: '',
               nodes: plugin === 'PlainTextPlugin' ? [] : RICH_TEXT_NODES,
-              onError: (err) => {
+              onError: err => {
                 throw err;
               },
               theme: {},
@@ -204,7 +204,7 @@ describe('LexicalNodeHelpers tests', () => {
             {plugin === 'PlainTextPlugin' ? (
               <PlainTextPlugin
                 contentEditable={<ContentEditable />}
-                placeholder={(isEditable) =>
+                placeholder={isEditable =>
                   isEditable ? (
                     <span className="placeholder">My placeholder</span>
                   ) : null
@@ -214,7 +214,7 @@ describe('LexicalNodeHelpers tests', () => {
             ) : (
               <RichTextPlugin
                 contentEditable={<ContentEditable />}
-                placeholder={(isEditable) =>
+                placeholder={isEditable =>
                   isEditable ? (
                     <span className="placeholder">My placeholder</span>
                   ) : null
@@ -226,7 +226,7 @@ describe('LexicalNodeHelpers tests', () => {
         );
       }
 
-      await ReactTestUtils.act(async () => {
+      await act(async () => {
         reactRoot.render(<App />);
       });
 
@@ -236,7 +236,7 @@ describe('LexicalNodeHelpers tests', () => {
       }
 
       expect(placeholderText()).toBe('My placeholder');
-      await ReactTestUtils.act(async () => {
+      await act(async () => {
         editor.setEditable(false);
         reactRoot.render(<App />);
       });

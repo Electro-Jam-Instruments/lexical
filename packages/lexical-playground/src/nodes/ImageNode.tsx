@@ -6,20 +6,6 @@
  *
  */
 
-import type {
-  DOMConversionMap,
-  DOMConversionOutput,
-  DOMExportOutput,
-  EditorConfig,
-  LexicalEditorWithDispose,
-  LexicalNode,
-  LexicalUpdateJSON,
-  NodeKey,
-  RangeSelection,
-  SerializedEditor,
-  SerializedLexicalNode,
-  Spread,
-} from 'lexical';
 import type {JSX} from 'react';
 
 import {
@@ -28,7 +14,7 @@ import {
 } from '@lexical/extension';
 import {HashtagExtension} from '@lexical/hashtag';
 import {HistoryExtension} from '@lexical/history';
-import {$generateHtmlFromNodes, $generateNodesFromDOM} from '@lexical/html';
+import {$generateHtmlFromNodes} from '@lexical/html';
 import {LinkExtension} from '@lexical/link';
 import {ReactExtension} from '@lexical/react/ReactExtension';
 import {ReactProviderExtension} from '@lexical/react/ReactProviderExtension';
@@ -41,24 +27,38 @@ import {
   $getRoot,
   $isElementNode,
   $isParagraphNode,
-  $selectAll,
-  $setSelection,
   configExtension,
   DecoratorNode,
   defineExtension,
-  SKIP_DOM_SELECTION_TAG,
+  type DOMExportOutput,
+  type EditorConfig,
+  type LexicalEditorWithDispose,
+  type LexicalNode,
+  type LexicalUpdateJSON,
+  type NodeKey,
+  type RangeSelection,
+  type SerializedEditor,
+  type SerializedLexicalNode,
+  type Spread,
 } from 'lexical';
 import * as React from 'react';
 
 import {EmojisExtension} from '../plugins/EmojisExtension';
-import MentionsPlugin from '../plugins/MentionsPlugin';
+import {MentionsPlugin} from '../plugins/MentionsExtension';
 import ContentEditable from '../ui/ContentEditable';
 import {EmojiNode} from './EmojiNode';
 import {KeywordsExtension} from './KeywordNode';
 
 const ImageComponent = React.lazy(() => import('./ImageComponent'));
 
-const CaptionEditorExtension = defineExtension({
+const CaptionEditorExtension = /* @__PURE__ */ defineExtension({
+  // Skip the default empty-paragraph initializer. In collab mode
+  // CollaborationPlugin's bootstrap only runs `initializeEditor` when
+  // the Lexical root is empty, so a pre-seeded paragraph would prevent
+  // the caption editor from ever exporting its state to Yjs. In
+  // non-collab mode RichText's normalization adds a paragraph as soon
+  // as the editor mounts.
+  $initialEditorState: null,
   dependencies: [
     // FIXME - The current playground has tests that assume that image captions don't have shared history
     // SharedHistoryExtension,
@@ -70,7 +70,7 @@ const CaptionEditorExtension = defineExtension({
     LinkExtension,
     KeywordsExtension,
     EmojisExtension,
-    configExtension(ReactExtension, {
+    /* @__PURE__ */ configExtension(ReactExtension, {
       contentEditable: (
         <ContentEditable
           placeholder="Enter a caption..."
@@ -78,7 +78,7 @@ const CaptionEditorExtension = defineExtension({
           className="ImageNode__contentEditable"
         />
       ),
-      decorators: [<MentionsPlugin />],
+      decorators: [<MentionsPlugin key="mentions" />],
     }),
   ],
   name: '@lexical/playground/ImageNodeCaption',
@@ -96,26 +96,6 @@ export interface ImagePayload {
   src: string;
   width?: number;
   captionsEnabled?: boolean;
-}
-
-function isGoogleDocCheckboxImg(img: HTMLImageElement): boolean {
-  return (
-    img.parentElement != null &&
-    img.parentElement.tagName === 'LI' &&
-    img.previousSibling === null &&
-    img.getAttribute('aria-roledescription') === 'checkbox'
-  );
-}
-
-function $convertImageElement(domNode: Node): null | DOMConversionOutput {
-  const img = domNode as HTMLImageElement;
-  const src = img.getAttribute('src');
-  if (!src || src.startsWith('file:///') || isGoogleDocCheckboxImg(img)) {
-    return null;
-  }
-  const {alt: altText, width, height} = img;
-  const node = $createImageNode({altText, height, src, width});
-  return {node};
 }
 
 export function $isCaptionEditorEmpty(): boolean {
@@ -155,8 +135,8 @@ export class ImageNode extends DecoratorNode<JSX.Element> {
   // Captions cannot yet be used within editor cells
   __captionsEnabled: boolean;
 
-  static getType(): string {
-    return 'image';
+  $config() {
+    return this.config('image', {extends: DecoratorNode});
   }
 
   static clone(node: ImageNode): ImageNode {
@@ -240,46 +220,6 @@ export class ImageNode extends DecoratorNode<JSX.Element> {
     }
 
     return {element: imgElement};
-  }
-
-  static importDOM(): DOMConversionMap | null {
-    return {
-      figcaption: () => ({
-        conversion: () => ({node: null}),
-        priority: 0,
-      }),
-      figure: () => ({
-        conversion: (node) => {
-          return {
-            after: (childNodes) => {
-              const imageNodes = childNodes.filter($isImageNode);
-              const figcaption = node.querySelector('figcaption');
-              if (figcaption) {
-                for (const imgNode of imageNodes) {
-                  imgNode.setShowCaption(true);
-                  imgNode.__caption.update(
-                    () => {
-                      $selectAll().insertNodes(
-                        $generateNodesFromDOM(imgNode.__caption, figcaption),
-                      );
-                      $setSelection(null);
-                    },
-                    {tag: SKIP_DOM_SELECTION_TAG},
-                  );
-                }
-              }
-              return imageNodes;
-            },
-            node: null,
-          };
-        },
-        priority: 0,
-      }),
-      img: () => ({
-        conversion: $convertImageElement,
-        priority: 0,
-      }),
-    };
   }
 
   constructor(

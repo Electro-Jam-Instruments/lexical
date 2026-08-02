@@ -6,14 +6,15 @@
  *
  */
 import type {LexicalNode, NodeKey} from '../LexicalNode';
+import type {TextNode} from '../nodes/LexicalTextNode';
 
-import devInvariant from 'shared/devInvariant';
-import invariant from 'shared/invariant';
+import devInvariant from '@lexical/internal/devInvariant';
+import invariant from '@lexical/internal/invariant';
 
+import {$getSlotHostKey} from '../LexicalSlot';
 import {$getRoot, $isRootOrShadowRoot} from '../LexicalUtils';
-import {$isElementNode, ElementNode} from '../nodes/LexicalElementNode';
+import {$isElementNode, type ElementNode} from '../nodes/LexicalElementNode';
 import {$isRootNode} from '../nodes/LexicalRootNode';
-import {TextNode} from '../nodes/LexicalTextNode';
 
 /**
  * The direction of a caret, 'next' points towards the end of the document
@@ -92,8 +93,9 @@ export interface BaseCaret<
 /**
  * A RangeSelection expressed as a pair of Carets
  */
-export interface CaretRange<D extends CaretDirection = CaretDirection>
-  extends Iterable<NodeCaret<D>> {
+export interface CaretRange<
+  D extends CaretDirection = CaretDirection,
+> extends Iterable<NodeCaret<D>> {
   readonly type: 'node-caret-range';
   readonly direction: D;
   anchor: PointCaret<D>;
@@ -377,8 +379,7 @@ abstract class AbstractCaret<
   T extends LexicalNode,
   D extends CaretDirection,
   Type,
-> implements BaseCaret<T, D, Type>
-{
+> implements BaseCaret<T, D, Type> {
   abstract readonly type: Type;
   abstract readonly direction: D;
   readonly origin: T;
@@ -392,7 +393,7 @@ abstract class AbstractCaret<
     return makeStepwiseIterator({
       hasNext: $isSiblingCaret,
       initial: this.getAdjacentCaret(),
-      map: (caret) => caret,
+      map: caret => caret,
       step: (caret: SiblingCaret<LexicalNode, D>) => caret.getAdjacentCaret(),
     });
   }
@@ -480,9 +481,9 @@ abstract class AbstractCaret<
 }
 
 abstract class AbstractChildCaret<
-    T extends ElementNode,
-    D extends CaretDirection,
-  >
+  T extends ElementNode,
+  D extends CaretDirection,
+>
   extends AbstractCaret<T, D, 'child'>
   implements ChildCaret<T, D>
 {
@@ -587,13 +588,20 @@ function $filterByMode<T extends ElementNode>(
   node: T | null,
   mode: RootMode = 'root',
 ): T | null {
-  return MODE_PREDICATE[mode](node) ? null : node;
+  if (node === null || MODE_PREDICATE[mode](node)) {
+    return null;
+  }
+  // A slotted node's up-link is __slotHost, not __parent, so getParent() (and
+  // thus getParentOrThrow()) returns null on it. It is a hard upward boundary
+  // in every mode — like the root — so caret walks must stop at it instead of
+  // trying to rewind past a parentless node.
+  return $getSlotHostKey(node) === null ? node : null;
 }
 
 abstract class AbstractSiblingCaret<
-    T extends LexicalNode,
-    D extends CaretDirection,
-  >
+  T extends LexicalNode,
+  D extends CaretDirection,
+>
   extends AbstractCaret<T, D, 'sibling'>
   implements SiblingCaret<T, D>
 {
@@ -652,9 +660,9 @@ abstract class AbstractSiblingCaret<
 }
 
 abstract class AbstractTextPointCaret<
-    T extends TextNode,
-    D extends CaretDirection,
-  >
+  T extends TextNode,
+  D extends CaretDirection,
+>
   extends AbstractCaret<T, D, 'text'>
   implements TextPointCaret<T, D>
 {
@@ -1038,7 +1046,7 @@ class CaretRangeImpl<D extends CaretDirection> implements CaretRange<D> {
       hasNext: (state: null | NodeCaret<D>): state is NodeCaret<D> =>
         state !== null && !(isTextFocus && focus.isSameNodeCaret(state)),
       initial: anchor.isSameNodeCaret(focus) ? null : step(anchor),
-      map: (state) => state,
+      map: state => state,
       step,
     });
   }
@@ -1047,9 +1055,10 @@ class CaretRangeImpl<D extends CaretDirection> implements CaretRange<D> {
   }
 }
 
-class TextPointCaretSliceImpl<T extends TextNode, D extends CaretDirection>
-  implements TextPointCaretSlice<T, D>
-{
+class TextPointCaretSliceImpl<
+  T extends TextNode,
+  D extends CaretDirection,
+> implements TextPointCaretSlice<T, D> {
   readonly type = 'slice';
   readonly caret: TextPointCaret<T, D>;
   readonly distance: number;

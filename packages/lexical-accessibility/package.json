@@ -14,32 +14,8 @@
   ],
   "license": "MIT",
   "version": "0.38.2",
-  "main": "LexicalAccessibility.js",
-  "types": "index.d.ts",
-  "module": "LexicalAccessibility.mjs",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/facebook/lexical",
-    "directory": "packages/lexical-accessibility"
-  },
-  "sideEffects": false,
-  "exports": {
-    ".": {
-      "import": {
-        "types": "./index.d.ts",
-        "development": "./LexicalAccessibility.dev.mjs",
-        "production": "./LexicalAccessibility.prod.mjs",
-        "node": "./LexicalAccessibility.node.mjs",
-        "default": "./LexicalAccessibility.mjs"
-      },
-      "require": {
-        "types": "./index.d.ts",
-        "development": "./LexicalAccessibility.dev.js",
-        "production": "./LexicalAccessibility.prod.js",
-        "default": "./LexicalAccessibility.js"
-      }
-    }
-  },
+  "main": "./dist/LexicalAccessibility.js",
+  "types": "./dist/typescript-too-old.d.ts",
   "dependencies": {
     "@lexical/code": "workspace:*",
     "@lexical/link": "workspace:*",
@@ -49,8 +25,61 @@
     "@lexical/rich-text": "workspace:*",
     "lexical": "workspace:*"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/facebook/lexical.git",
+    "directory": "packages/lexical-accessibility"
+  },
+  "module": "./dist/LexicalAccessibility.mjs",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "source": "./src/index.ts",
+      "import": {
+        "types@<5.2": "./dist/typescript-too-old.d.ts",
+        "types": "./dist/index.d.ts",
+        "development": "./dist/LexicalAccessibility.dev.mjs",
+        "production": "./dist/LexicalAccessibility.prod.mjs",
+        "node": "./dist/LexicalAccessibility.node.mjs",
+        "default": "./dist/LexicalAccessibility.mjs"
+      },
+      "require": {
+        "types@<5.2": "./dist/typescript-too-old.d.ts",
+        "types": "./dist/index.d.ts",
+        "development": "./dist/LexicalAccessibility.dev.js",
+        "production": "./dist/LexicalAccessibility.prod.js",
+        "default": "./dist/LexicalAccessibility.js"
+      }
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "!src/__tests__",
+    "!src/__bench__",
+    "!src/__mocks__",
+    "!src/**/*.test.ts",
+    "!src/**/*.test.tsx",
+    "!src/**/*.bench.ts",
+    "!src/**/*.bench.tsx",
+    "README.md",
+    "LICENSE"
+  ],
+  "typesVersions": {
+    "*": {
+      "*": [
+        "./dist/typescript-too-old.d.ts"
+      ]
+    }
+  },
   "peerDependencies": {
     "react": ">=18.0.0",
-    "react-dom": ">=18.0.0"
+    "react-dom": ">=18.0.0",
+    "typescript": ">=5.2"
+  },
+  "peerDependenciesMeta": {
+    "typescript": {
+      "optional": true
+    }
   }
 }

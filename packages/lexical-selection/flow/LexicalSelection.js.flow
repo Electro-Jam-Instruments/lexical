@@ -7,6 +7,7 @@
  * @flow strict
  */
 import type {
+  CaretDirection,
   ElementNode,
   LexicalEditor,
   LexicalNode,
@@ -17,7 +18,8 @@ import type {
   RangeSelection,
   TextNode,
 } from 'lexical';
-declare export function $cloneWithProperties<T: LexicalNode>(node: T): T;
+declare export function $cloneWithProperties<T extends LexicalNode>(node: T): T;
+/** @deprecated moved to the lexical package */
 declare export function getStyleObjectFromCSS(css: string): {
   [string]: string,
 };
@@ -29,7 +31,7 @@ declare export function $patchStyleText(
   },
 ): void;
 declare export function $getSelectionStyleValueForProperty(
-  selection: RangeSelection,
+  selection: BaseSelection,
   styleProperty: string,
   defaultValue: string,
 ): string;
@@ -56,6 +58,11 @@ declare export function $setBlocksType(
   createElement: () => ElementNode,
 ): void;
 declare export function $isAtNodeEnd(point: Point): boolean;
+declare export function $isAtEdgeOfElement(
+  point: Point,
+  element: ElementNode,
+  direction: CaretDirection,
+): boolean;
 declare export function $shouldOverrideDefaultCharacterSelection(
   selection: RangeSelection,
   isBackward: boolean,
@@ -72,7 +79,7 @@ declare export function createDOMRange(
 declare export function createRectsFromDOMRange(
   editor: LexicalEditor,
   range: Range,
-): Array<ClientRect>;
+): ClientRect[];
 
 declare export function $trimTextContentFromAnchor(
   editor: LexicalEditor,
@@ -89,7 +96,7 @@ declare export function $forEachSelectedTextNode(
   fn: (textNode: TextNode) => void,
 ): void;
 
-declare export function $sliceSelectedTextNodeContent<T: TextNode>(
+declare export function $sliceSelectedTextNodeContent<T extends TextNode>(
   selection: BaseSelection,
   textNode: T,
   mutates?: 'self' | 'clone',

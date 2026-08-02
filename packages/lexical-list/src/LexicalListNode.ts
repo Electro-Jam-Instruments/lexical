@@ -7,36 +7,35 @@
  */
 
 import {
-  addClassNamesToElement,
-  isHTMLElement,
-  removeClassNamesFromElement,
-} from '@lexical/utils';
-import {
   $applyNodeReplacement,
-  $copyNode,
   $createTextNode,
+  $getDocument,
   $isElementNode,
+  $setDirectionFromDOM,
+  addClassNamesToElement,
   buildImportMap,
-  DOMConversionOutput,
-  DOMExportOutput,
-  EditorConfig,
-  EditorThemeClasses,
+  type DOMConversionOutput,
+  type DOMExportOutput,
+  type EditorConfig,
+  type EditorThemeClasses,
   ElementNode,
-  LexicalEditor,
-  LexicalNode,
-  LexicalUpdateJSON,
-  NodeKey,
+  isHTMLElement,
+  type LexicalEditor,
+  type LexicalNode,
+  type LexicalUpdateJSON,
+  type NodeKey,
   normalizeClassNames,
-  SerializedElementNode,
-  Spread,
+  removeClassNamesFromElement,
+  type SerializedElementNode,
+  type Spread,
 } from 'lexical';
 
-import {$createListItemNode, $isListItemNode, ListItemNode} from '.';
+import {$createListItemNode, $isListItemNode, type ListItemNode} from '.';
 import {
   mergeNextSiblingListIfSameType,
   updateChildrenListItemValue,
 } from './formatList';
-import {$getListDepth, $wrapInListItem} from './utils';
+import {$getListDepth} from './utils';
 
 export type SerializedListNode = Spread<
   {
@@ -125,7 +124,7 @@ export class ListNode extends ElementNode {
 
   createDOM(config: EditorConfig, _editor?: LexicalEditor): HTMLElement {
     const tag = this.__tag;
-    const dom = document.createElement(tag);
+    const dom = $getDocument().createElement(tag);
 
     if (this.__start !== 1) {
       dom.setAttribute('start', String(this.__start));
@@ -198,13 +197,6 @@ export class ListNode extends ElementNode {
     deleteCount: number,
     nodesToInsert: LexicalNode[],
   ): this {
-    const exampleListItem =
-      nodesToInsert.find($isListItemNode) ??
-      this.getChildren().find($isListItemNode);
-    const $newListItem = exampleListItem
-      ? () => $copyNode(exampleListItem)
-      : $createListItemNode;
-
     let listItemNodesToInsert = nodesToInsert;
     for (let i = 0; i < nodesToInsert.length; i++) {
       const node = nodesToInsert[i];
@@ -212,7 +204,7 @@ export class ListNode extends ElementNode {
         if (listItemNodesToInsert === nodesToInsert) {
           listItemNodesToInsert = [...nodesToInsert];
         }
-        listItemNodesToInsert[i] = $newListItem().append(
+        listItemNodesToInsert[i] = this.createListItemNode().append(
           $isElementNode(node) && !($isListNode(node) || node.isInline())
             ? $createTextNode(node.getTextContent())
             : node,
@@ -224,6 +216,16 @@ export class ListNode extends ElementNode {
 
   extractWithChild(child: LexicalNode): boolean {
     return $isListItemNode(child);
+  }
+
+  /**
+   * Create an appropriate ListItemNode to be a child of this ListNode,
+   * {@link $createListItemNode} is the default implementation.
+   *
+   * @returns A new ListItemNode.
+   */
+  createListItemNode(): ListItemNode {
+    return $createListItemNode();
   }
 }
 
@@ -292,22 +294,27 @@ function $setListThemeClassNames(
  * ensuring that they are all ListItemNodes and contain either a single nested ListNode
  * or some other inline content.
  */
-function $normalizeChildren(nodes: Array<LexicalNode>): Array<ListItemNode> {
-  const normalizedListItems: Array<ListItemNode> = [];
+function $normalizeChildren(
+  nodes: LexicalNode[],
+  listNode: ListNode,
+): ListItemNode[] {
+  const $createWrapperItem = listNode.createListItemNode.bind(listNode);
+
+  const normalizedListItems: ListItemNode[] = [];
   for (let i = 0; i < nodes.length; i++) {
     const node = nodes[i];
     if ($isListItemNode(node)) {
       normalizedListItems.push(node);
       const children = node.getChildren();
       if (children.length > 1) {
-        children.forEach((child) => {
+        children.forEach(child => {
           if ($isListNode(child)) {
-            normalizedListItems.push($wrapInListItem(child));
+            normalizedListItems.push($createWrapperItem().append(child));
           }
         });
       }
     } else {
-      normalizedListItems.push($wrapInListItem(node));
+      normalizedListItems.push($createWrapperItem().append(node));
     }
   }
   return normalizedListItems;
@@ -332,25 +339,25 @@ function isDomChecklist(domNode: HTMLElement) {
   return false;
 }
 
+function isHTMLOListElement(node: unknown): node is HTMLOListElement {
+  return isHTMLElement(node) && node.nodeName.toLowerCase() === 'ol';
+}
+
 function $convertListNode(
   domNode: HTMLOListElement | HTMLUListElement,
 ): DOMConversionOutput {
-  const nodeName = domNode.nodeName.toLowerCase();
-  let node = null;
-  if (nodeName === 'ol') {
-    // @ts-ignore
+  let node: ListNode;
+  if (isHTMLOListElement(domNode)) {
     const start = domNode.start;
     node = $createListNode('number', start);
-  } else if (nodeName === 'ul') {
-    if (isDomChecklist(domNode)) {
-      node = $createListNode('check');
-    } else {
-      node = $createListNode('bullet');
-    }
+  } else if (isDomChecklist(domNode)) {
+    node = $createListNode('check');
+  } else {
+    node = $createListNode('bullet');
   }
-
+  $setDirectionFromDOM(node, domNode);
   return {
-    after: $normalizeChildren,
+    after: children => $normalizeChildren(children, node),
     node,
   };
 }

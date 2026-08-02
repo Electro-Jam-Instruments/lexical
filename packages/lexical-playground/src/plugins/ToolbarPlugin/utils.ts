@@ -17,27 +17,31 @@ import {
   $createQuoteNode,
   $isHeadingNode,
   $isQuoteNode,
-  HeadingTagType,
+  type HeadingTagType,
 } from '@lexical/rich-text';
 import {$patchStyleText, $setBlocksType} from '@lexical/selection';
 import {$isTableSelection} from '@lexical/table';
-import {$getNearestBlockElementAncestorOrThrow} from '@lexical/utils';
+import {
+  $getNearestBlockElementAncestorOrThrow,
+  $isBlockFullySelected,
+} from '@lexical/utils';
 import {
   $addUpdateTag,
   $createParagraphNode,
   $createRangeSelection,
+  $findMatchingParent,
   $getSelection,
-  $isElementNode,
+  $isBlockElementNode,
   $isLineBreakNode,
-  $isParagraphNode,
   $isRangeSelection,
   $isTextNode,
   $setSelection,
   $splitNode,
-  ElementNode,
-  LexicalEditor,
-  LexicalNode,
-  RangeSelection,
+  type ElementNode,
+  type LexicalEditor,
+  type LexicalNode,
+  type NodeKey,
+  type RangeSelection,
   SKIP_DOM_SELECTION_TAG,
   SKIP_SELECTION_FOCUS_TAG,
 } from 'lexical';
@@ -48,7 +52,6 @@ import {
   MIN_ALLOWED_FONT_SIZE,
 } from '../../context/ToolbarContext';
 
-// eslint-disable-next-line no-shadow
 export enum UpdateFontSizeType {
   increment = 1,
   decrement,
@@ -195,6 +198,10 @@ export const formatHeading = (
       $addUpdateTag(SKIP_SELECTION_FOCUS_TAG);
       const selection = $getSelection();
       $setBlocksType(selection, () => $createHeadingNode(headingSize));
+      const updatedSelection = $getSelection();
+      if (updatedSelection) {
+        $patchStyleText(updatedSelection, {'font-size': null});
+      }
     });
   }
 };
@@ -203,7 +210,7 @@ export const formatBulletList = (editor: LexicalEditor, blockType: string) => {
   if (blockType !== 'bullet') {
     editor.update(() => {
       $addUpdateTag(SKIP_SELECTION_FOCUS_TAG);
-      editor.dispatchCommand(INSERT_UNORDERED_LIST_COMMAND, undefined);
+      editor.dispatchCommand(INSERT_UNORDERED_LIST_COMMAND);
     });
   } else {
     formatParagraph(editor);
@@ -214,7 +221,7 @@ export const formatCheckList = (editor: LexicalEditor, blockType: string) => {
   if (blockType !== 'check') {
     editor.update(() => {
       $addUpdateTag(SKIP_SELECTION_FOCUS_TAG);
-      editor.dispatchCommand(INSERT_CHECK_LIST_COMMAND, undefined);
+      editor.dispatchCommand(INSERT_CHECK_LIST_COMMAND);
     });
   } else {
     formatParagraph(editor);
@@ -228,7 +235,7 @@ export const formatNumberedList = (
   if (blockType !== 'number') {
     editor.update(() => {
       $addUpdateTag(SKIP_SELECTION_FOCUS_TAG);
-      editor.dispatchCommand(INSERT_ORDERED_LIST_COMMAND, undefined);
+      editor.dispatchCommand(INSERT_ORDERED_LIST_COMMAND);
     });
   } else {
     formatParagraph(editor);
@@ -245,16 +252,16 @@ export const formatQuote = (editor: LexicalEditor, blockType: string) => {
   }
 };
 
-function $splitParagraphsByLineBreaks(selection: RangeSelection): void {
+function $splitBlocksByLineBreaks(selection: RangeSelection): void {
   const blocks: Set<ElementNode> = new Set();
   for (const node of selection.getNodes()) {
-    const block = $isParagraphNode(node) ? node : $findParagraphParent(node);
+    const block = $findBlockAncestor(node);
     if (block !== null) {
       blocks.add(block);
     }
   }
   for (const point of [selection.anchor, selection.focus]) {
-    const block = $findParagraphParent(point.getNode());
+    const block = $findBlockAncestor(point.getNode());
     if (block !== null) {
       blocks.add(block);
     }
@@ -293,12 +300,8 @@ function $splitParagraphsByLineBreaks(selection: RangeSelection): void {
   $setSelection(newSelection);
 }
 
-function $findParagraphParent(node: LexicalNode): ElementNode | null {
-  if ($isParagraphNode(node)) {
-    return node;
-  }
-  const parent = node.getParent();
-  return $isElementNode(parent) && $isParagraphNode(parent) ? parent : null;
+function $findBlockAncestor(node: LexicalNode): ElementNode | null {
+  return $findMatchingParent(node, $isBlockElementNode);
 }
 
 export const formatCode = (editor: LexicalEditor, blockType: string) => {
@@ -312,22 +315,40 @@ export const formatCode = (editor: LexicalEditor, blockType: string) => {
       if (!$isRangeSelection(selection) || selection.isCollapsed()) {
         $setBlocksType(selection, () => $createCodeNode());
       } else {
-        $splitParagraphsByLineBreaks(selection);
+        // Each LineBreakNode becomes a block boundary so insertNodes below
+        // can place the code block on its own row, not between <br>s.
+        $splitBlocksByLineBreaks(selection);
         selection = $getSelection();
         if (!$isRangeSelection(selection)) {
           return;
         }
         const textContent = selection.getTextContent();
+        // The trailing paragraph absorbs the post-insertion merge that
+        // would otherwise fold the original block's trailing content into
+        // the code node.
         const codeNode = $createCodeNode();
-        selection.insertNodes([codeNode]);
-        selection = $getSelection();
-        if ($isRangeSelection(selection)) {
-          selection.insertRawText(textContent);
+        const trailingParagraph = $createParagraphNode();
+        selection.insertNodes([codeNode, trailingParagraph]);
+        // insertNodes leaves the cursor in the trailing paragraph.
+        selection = codeNode.select();
+        selection.insertRawText(textContent);
+        // Drop the trailing paragraph if the merge step didn't fill it.
+        if (trailingParagraph.isAttached() && trailingParagraph.isEmpty()) {
+          trailingParagraph.remove();
         }
       }
     });
   }
 };
+
+function $clearBlockFormat(block: ElementNode): void {
+  if (block.getFormat() !== 0) {
+    block.setFormat('');
+  }
+  if (block.getIndent() !== 0) {
+    block.setIndent(0);
+  }
+}
 
 export const clearFormatting = (
   editor: LexicalEditor,
@@ -344,10 +365,34 @@ export const clearFormatting = (
       const extractedNodes = selection.extract();
 
       if (anchor.key === focus.key && anchor.offset === focus.offset) {
+        $clearBlockFormat(
+          $getNearestBlockElementAncestorOrThrow(anchor.getNode()),
+        );
         return;
       }
 
-      extractedNodes.forEach((node) => {
+      // Determine which blocks are fully selected before making any
+      // changes, since the mutations below (such as replacing a
+      // HeadingNode with a ParagraphNode) would detach nodes that the
+      // selection's carets may refer to
+      const postExtractSelection = $getSelection();
+      let fullySelectedBlocks: null | Set<NodeKey> = null;
+      if ($isRangeSelection(postExtractSelection)) {
+        fullySelectedBlocks = new Set();
+        for (const node of extractedNodes) {
+          if ($isTextNode(node)) {
+            const block = $getNearestBlockElementAncestorOrThrow(node);
+            if (
+              !fullySelectedBlocks.has(block.getKey()) &&
+              $isBlockFullySelected(block, postExtractSelection)
+            ) {
+              fullySelectedBlocks.add(block.getKey());
+            }
+          }
+        }
+      }
+
+      extractedNodes.forEach(node => {
         if ($isTextNode(node)) {
           if (node.getStyle() !== '') {
             node.setStyle('');
@@ -357,11 +402,11 @@ export const clearFormatting = (
           }
           const nearestBlockElement =
             $getNearestBlockElementAncestorOrThrow(node);
-          if (nearestBlockElement.getFormat() !== 0) {
-            nearestBlockElement.setFormat('');
-          }
-          if (nearestBlockElement.getIndent() !== 0) {
-            nearestBlockElement.setIndent(0);
+          if (
+            fullySelectedBlocks === null ||
+            fullySelectedBlocks.has(nearestBlockElement.getKey())
+          ) {
+            $clearBlockFormat(nearestBlockElement);
           }
         } else if ($isHeadingNode(node) || $isQuoteNode(node)) {
           node.replace($createParagraphNode(), true);

@@ -12,8 +12,15 @@ export {
   ClearEditorExtension,
   registerClearEditor,
 } from './ClearEditorExtension';
+export {
+  $defaultShouldInsertAfter,
+  type ClickAfterLastBlockConfig,
+  ClickAfterLastBlockExtension,
+  type ClickAfterLastBlockOutput,
+} from './ClickAfterLastBlockExtension';
 export {getKnownTypesAndNodes, type KnownTypesAndNodes} from './config';
 export {
+  $applyFormatToDom,
   $isDecoratorTextNode,
   applyFormatFromStyle,
   applyFormatToDom,
@@ -22,6 +29,11 @@ export {
   type SerializedDecoratorTextNode,
 } from './DecoratorTextExtension';
 export {EditorStateExtension} from './EditorStateExtension';
+export {
+  $getExtensionDependency,
+  $getExtensionOutput,
+  $getPeerDependency,
+} from './getExtensionDependency';
 export {getExtensionDependencyFromEditor} from './getExtensionDependencyFromEditor';
 export {
   getPeerDependencyFromEditor,
@@ -35,6 +47,7 @@ export {
   INSERT_HORIZONTAL_RULE_COMMAND,
   type SerializedHorizontalRuleNode,
 } from './HorizontalRuleExtension';
+export {IMEExtension} from './IMEExtension';
 export {
   type InitialStateConfig,
   InitialStateExtension,
@@ -46,7 +59,29 @@ export {
   type NamedSignalsOutput,
 } from './namedSignals';
 export {NestedEditorExtension} from './NestedEditorExtension';
+export {
+  type NodeSelectionDataSelectedConfig,
+  NodeSelectionDataSelectedExtension,
+} from './NodeSelectionDataSelectedExtension';
 export {NodeSelectionExtension} from './NodeSelectionExtension';
+export {
+  type NormalizeInlineElementsConfig,
+  NormalizeInlineElementsExtension,
+} from './NormalizeInlineElementsExtension';
+export {
+  type NormalizeTripleClickSelectionConfig,
+  NormalizeTripleClickSelectionExtension,
+  type NormalizeTripleClickSelectionOutput,
+} from './NormalizeTripleClickSelectionExtension';
+export {
+  type PreventSelectAllConfig,
+  PreventSelectAllExtension,
+} from './PreventSelectAllExtension';
+export {RootElementExtension} from './RootElementExtension';
+export {
+  type SelectBlockConfig,
+  SelectBlockExtension,
+} from './SelectBlockExtension';
 export {SelectionAlwaysOnDisplayExtension} from './SelectionAlwaysOnDisplayExtension';
 export {
   batch,
@@ -64,6 +99,7 @@ export {
   type TabIndentationConfig,
   TabIndentationExtension,
 } from './TabIndentationExtension';
+export {WatchEditableExtension} from './WatchEditableExtension';
 export {watchedSignal} from './watchedSignal';
 export {
   type AnyLexicalExtension,

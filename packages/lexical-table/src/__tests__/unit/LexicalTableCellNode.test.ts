@@ -11,10 +11,10 @@ import {
   $createTableCellNode,
   $isTableCellNode,
   TableCellHeaderStates,
-  TableCellNode,
 } from '@lexical/table';
-import {$getRoot, DOMConversionOutput} from 'lexical';
+import {$createTextNode, $getRoot, type DOMConversionOutput} from 'lexical';
 import {
+  $runDOMConversion,
   expectHtmlToBeEqual,
   html,
   initializeUnitTest,
@@ -30,7 +30,7 @@ const editorConfig = Object.freeze({
 });
 
 describe('LexicalTableCellNode tests', () => {
-  initializeUnitTest((testEnv) => {
+  initializeUnitTest(testEnv => {
     test('TableCellNode.constructor', async () => {
       const {editor} = testEnv;
 
@@ -104,7 +104,7 @@ describe('LexicalTableCellNode tests', () => {
       const {editor} = testEnv;
       const parser = new DOMParser();
 
-      const cases: Array<[string, string]> = [
+      const cases: [string, string][] = [
         [
           html`
             <table>
@@ -118,7 +118,6 @@ describe('LexicalTableCellNode tests', () => {
           `,
           html`
             <table>
-              <colgroup><col /></colgroup>
               <tbody>
                 <tr>
                   <td
@@ -150,7 +149,6 @@ describe('LexicalTableCellNode tests', () => {
           `,
           html`
             <table>
-              <colgroup><col /></colgroup>
               <tbody>
                 <tr>
                   <td
@@ -183,7 +181,6 @@ describe('LexicalTableCellNode tests', () => {
           `,
           html`
             <table>
-              <colgroup><col /></colgroup>
               <tbody>
                 <tr>
                   <td
@@ -220,22 +217,14 @@ describe('LexicalTableCellNode tests', () => {
       });
     }, 15000);
 
-    // Simulates the Lexical Paste Engine finding and running the converter
-    const convertHTMLTag = (element: HTMLElement) => {
-      const importDOMMap = TableCellNode.importDOM();
-
-      // look up tag name (e.g., 'th') in the import map
-      const handler = importDOMMap![element.tagName.toLowerCase()];
-      if (!handler) {
-        throw new Error(`No handler found for tag ${element.tagName}`);
-      }
-
-      const specs = handler(element);
-      if (!specs) {
-        throw new Error(`Handler returned null for tag ${element.tagName}`);
-      }
-      return specs.conversion(element);
-    };
+    // Simulates the Lexical Paste Engine finding and running the converter by
+    // driving the real DOM-import machinery (the editor's registered conversion
+    // cache, the path the paste engine actually uses) rather than reaching into
+    // TableCellNode.importDOM() directly. The element is converted in place so
+    // the cell's row/table position is visible to the conversion.
+    const $convertHTMLTag = (
+      element: HTMLElement,
+    ): DOMConversionOutput | null => $runDOMConversion(testEnv.editor, element);
 
     const expectTableCellNode = (result: DOMConversionOutput | null) => {
       const node = result?.node;
@@ -259,7 +248,7 @@ describe('LexicalTableCellNode tests', () => {
         const th = document.createElement('th');
         th.setAttribute('scope', 'col');
 
-        const result = convertHTMLTag(th);
+        const result = $convertHTMLTag(th);
 
         const node = expectTableCellNode(result);
 
@@ -274,7 +263,7 @@ describe('LexicalTableCellNode tests', () => {
         const th = document.createElement('th');
         th.setAttribute('scope', 'row');
 
-        const result = convertHTMLTag(th);
+        const result = $convertHTMLTag(th);
 
         const node = expectTableCellNode(result);
 
@@ -286,13 +275,150 @@ describe('LexicalTableCellNode tests', () => {
       const {editor} = testEnv;
 
       await editor.update(() => {
+        const table = document.createElement('table');
+        const tr = document.createElement('tr');
         const th = document.createElement('th');
-        // No scope attribute set
-        const result = convertHTMLTag(th);
+        tr.appendChild(th);
+        table.appendChild(tr);
+
+        const result = $convertHTMLTag(th);
 
         const node = expectTableCellNode(result);
 
+        // First row, first column → BOTH (ROW from header row + COLUMN from first column)
+        expect(node.getHeaderStyles()).toBe(TableCellHeaderStates.BOTH);
+      });
+    });
+
+    test('DOM Conversion: <th> in first row without scope becomes ROW header', async () => {
+      const {editor} = testEnv;
+
+      await editor.update(() => {
+        const table = document.createElement('table');
+        const tr = document.createElement('tr');
+        const th = document.createElement('th');
+        const td = document.createElement('td');
+        tr.appendChild(th);
+        tr.appendChild(td);
+        table.appendChild(tr);
+
+        const result = $convertHTMLTag(th);
+        const node = expectTableCellNode(result);
+
+        // First row, first column → BOTH
+        expect(node.getHeaderStyles()).toBe(TableCellHeaderStates.BOTH);
+      });
+    });
+
+    test('DOM Conversion: <th> in first column of non-first row becomes COLUMN header', async () => {
+      const {editor} = testEnv;
+
+      await editor.update(() => {
+        const table = document.createElement('table');
+        const tr1 = document.createElement('tr');
+        const tr2 = document.createElement('tr');
+        const th1 = document.createElement('th');
+        const td1 = document.createElement('td');
+        const th2 = document.createElement('th');
+        const td2 = document.createElement('td');
+        tr1.appendChild(th1);
+        tr1.appendChild(td1);
+        tr2.appendChild(th2);
+        tr2.appendChild(td2);
+        table.appendChild(tr1);
+        table.appendChild(tr2);
+
+        const result = $convertHTMLTag(th2);
+        const node = expectTableCellNode(result);
+
+        // Non-first row, first column → COLUMN
+        expect(node.getHeaderStyles()).toBe(TableCellHeaderStates.COLUMN);
+      });
+    });
+
+    test('DOM Conversion: <th> in thead without scope becomes ROW header', async () => {
+      const {editor} = testEnv;
+
+      await editor.update(() => {
+        const table = document.createElement('table');
+        const thead = document.createElement('thead');
+        const tr = document.createElement('tr');
+        const th = document.createElement('th');
+        const th2 = document.createElement('th');
+        tr.appendChild(th);
+        tr.appendChild(th2);
+        thead.appendChild(tr);
+        table.appendChild(thead);
+
+        // Second th in thead → ROW (not first column, so only ROW from first row)
+        const result = $convertHTMLTag(th2);
+        const node = expectTableCellNode(result);
+
         expect(node.getHeaderStyles()).toBe(TableCellHeaderStates.ROW);
+      });
+    });
+
+    test('DOM Conversion: <td> with style.backgroundColor reads inline background-color', async () => {
+      const {editor} = testEnv;
+
+      await editor.update(() => {
+        const td = document.createElement('td');
+        td.style.backgroundColor = '#F4B084';
+
+        const result = $convertHTMLTag(td);
+        const node = expectTableCellNode(result);
+
+        // Browsers normalize hex to rgb when set via .style
+        expect(node.getBackgroundColor()).toBe(td.style.backgroundColor);
+      });
+    });
+
+    test('DOM Conversion: <td> with no background color sets backgroundColor to null', async () => {
+      const {editor} = testEnv;
+
+      await editor.update(() => {
+        const td = document.createElement('td');
+
+        const result = $convertHTMLTag(td);
+        const node = expectTableCellNode(result);
+
+        expect(node.getBackgroundColor()).toBeNull();
+      });
+    });
+
+    test('DOM Conversion: <td> with color propagates color to child TextNodes via after callback', async () => {
+      const {editor} = testEnv;
+
+      await editor.update(() => {
+        const td = document.createElement('td');
+        td.style.color = 'blue';
+
+        const result = $convertHTMLTag(td);
+        expectTableCellNode(result);
+
+        // The after callback propagates td color to child TextNodes
+        const textNode = $createTextNode('Hello');
+        result!.after!([textNode]);
+        expect(textNode.getStyle()).toContain('color: blue');
+      });
+    });
+
+    test('DOM Conversion: <td> color does not overwrite existing child TextNode color', async () => {
+      const {editor} = testEnv;
+
+      await editor.update(() => {
+        const td = document.createElement('td');
+        td.style.color = 'blue';
+
+        const result = $convertHTMLTag(td);
+        expectTableCellNode(result);
+
+        const textNode = $createTextNode('Hello');
+        textNode.setStyle('color: red;');
+        result!.after!([textNode]);
+        // Existing color should not be overwritten
+        expect(textNode.getStyle()).toContain('color: red');
+        expect(textNode.getStyle()).not.toContain('color: blue');
       });
     });
   });

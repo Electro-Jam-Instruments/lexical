@@ -5,10 +5,10 @@
  * LICENSE file in the root directory of this source tree.
  *
  */
-
 import {$createCodeNode, CodeNode} from '@lexical/code-core';
 import {createHeadlessEditor} from '@lexical/headless';
 import {$generateHtmlFromNodes, $generateNodesFromDOM} from '@lexical/html';
+import invariant from '@lexical/internal/invariant';
 import {$createLinkNode, LinkNode} from '@lexical/link';
 import {
   $createListItemNode,
@@ -16,37 +16,61 @@ import {
   ListItemNode,
   ListNode,
 } from '@lexical/list';
-import {HeadingNode, QuoteNode} from '@lexical/rich-text';
 import {
+  $convertFromMarkdownString,
+  $convertSelectionToMarkdownString,
+  $convertToMarkdownString,
+  $generateNodesFromMarkdownString,
+  CHECK_LIST,
+  CODE,
+  type ElementTransformer,
+  HEADING,
+  LINK,
+  type MultilineElementTransformer,
+  registerMarkdownShortcuts,
+  type TextMatchTransformer,
+  type Transformer,
+  TRANSFORMERS,
+} from '@lexical/markdown';
+import {
+  $createHeadingNode,
+  $createQuoteNode,
+  $isHeadingNode,
+  HeadingNode,
+  QuoteNode,
+} from '@lexical/rich-text';
+import {
+  $addUpdateTag,
+  $copyNode,
+  $createLineBreakNode,
   $createParagraphNode,
   $createTextNode,
+  $getCaretRange,
   $getRoot,
   $getSelection,
   $getState,
+  $getTextPointCaret,
   $insertNodes,
+  $isElementNode,
+  $isLineBreakNode,
+  $isParagraphNode,
   $isRangeSelection,
+  $isTextNode,
+  $setCompositionKey,
+  $setSelectionFromCaretRange,
   $setState,
+  COMPOSITION_END_TAG,
   KEY_ENTER_COMMAND,
+  TEXT_TYPE_TO_FORMAT,
+  type TextNode,
 } from 'lexical';
-import {describe, expect, it} from 'vitest';
+import {assert, describe, expect, it} from 'vitest';
 
 import {
-  $convertFromMarkdownString,
-  $convertToMarkdownString,
-  LINK,
-  registerMarkdownShortcuts,
-  TextMatchTransformer,
-  Transformer,
-} from '../..';
-import {
-  CHECK_LIST,
-  CODE,
-  ElementTransformer,
-  HEADING,
+  hardLineBreakState,
   listMarkerState,
-  MultilineElementTransformer,
   normalizeMarkdown,
-  TRANSFORMERS,
+  parseMarkdownHardLineBreak,
 } from '../../MarkdownTransformers';
 
 const HIGHLIGHT_TEXT_MATCH_IMPORT: TextMatchTransformer = {
@@ -105,7 +129,7 @@ const SIMPLE_INLINE_JSX_MATCHER: TextMatchTransformer = {
 // Matches html within a mdx file
 const MDX_HTML_TRANSFORMER: MultilineElementTransformer = {
   dependencies: [CodeNode],
-  export: (node) => {
+  export: node => {
     if (node.getTextContent().startsWith('From HTML:')) {
       return `<MyComponent>${node
         .getTextContent()
@@ -255,7 +279,7 @@ export const CANCELED_HEADING_REPLACE_EXAMPLE: ElementTransformer = {
 };
 
 describe('Markdown', () => {
-  type Input = Array<{
+  type Input = {
     html: string;
     md: string;
     skipExport?: true;
@@ -264,7 +288,7 @@ describe('Markdown', () => {
     shouldMergeAdjacentLines?: true | false;
     customTransformers?: Transformer[];
     mdAfterExport?: string;
-  }>;
+  }[];
 
   const URL = 'https://lexical.dev';
 
@@ -331,20 +355,25 @@ describe('Markdown', () => {
       md: '- Hello\n- world',
     },
     {
-      html: '<ul><li value="1"><span style="white-space: pre-wrap;">Level 1</span></li><li value="2"><ul><li value="1"><span style="white-space: pre-wrap;">Level 2</span></li><li value="2"><ul><li value="1"><span style="white-space: pre-wrap;">Level 3</span></li></ul></li></ul></li></ul><p><span style="white-space: pre-wrap;">Hello world</span></p>',
+      html: '<ul><li value="1"><span style="white-space: pre-wrap;">Level 1</span><ul><li value="1"><span style="white-space: pre-wrap;">Level 2</span><ul><li value="1"><span style="white-space: pre-wrap;">Level 3</span></li></ul></li></ul></li></ul><p><span style="white-space: pre-wrap;">Hello world</span></p>',
       md: '- Level 1\n    - Level 2\n        - Level 3\n\nHello world',
     },
     // List indentation with tabs, Import only: export will use "    " only for one level of indentation
     {
-      html: '<ul><li value="1"><span style="white-space: pre-wrap;">Level 1</span></li><li value="2"><ul><li value="1"><span style="white-space: pre-wrap;">Level 2</span></li><li value="2"><ul><li value="1"><span style="white-space: pre-wrap;">Level 3</span></li></ul></li></ul></li></ul><p><span style="white-space: pre-wrap;">Hello world</span></p>',
+      html: '<ul><li value="1"><span style="white-space: pre-wrap;">Level 1</span><ul><li value="1"><span style="white-space: pre-wrap;">Level 2</span><ul><li value="1"><span style="white-space: pre-wrap;">Level 3</span></li></ul></li></ul></li></ul><p><span style="white-space: pre-wrap;">Hello world</span></p>',
       md: '- Level 1\n\t- Level 2\n  \t  - Level 3\n\nHello world',
       skipExport: true,
     },
     {
       // Import only: export will use "-" instead of "*"
-      html: '<ul><li value="1"><span style="white-space: pre-wrap;">Level 1</span></li><li value="2"><ul><li value="1"><span style="white-space: pre-wrap;">Level 2</span></li><li value="2"><ul><li value="1"><span style="white-space: pre-wrap;">Level 3</span></li></ul></li></ul></li></ul><p><span style="white-space: pre-wrap;">Hello world</span></p>',
+      html: '<ul><li value="1"><span style="white-space: pre-wrap;">Level 1</span><ul><li value="1"><span style="white-space: pre-wrap;">Level 2</span><ul><li value="1"><span style="white-space: pre-wrap;">Level 3</span></li></ul></li></ul></li></ul><p><span style="white-space: pre-wrap;">Hello world</span></p>',
       md: '* Level 1\n    * Level 2\n        * Level 3\n\nHello world',
       skipExport: true,
+    },
+    {
+      // Bullet list item starting with number-dot pattern should be escaped (#7824)
+      html: '<ul><li value="1"><span style="white-space: pre-wrap;">1. foo</span></li></ul>',
+      md: '- 1\\. foo',
     },
     {
       html: '<ol><li value="1"><span style="white-space: pre-wrap;">Hello</span></li><li value="2"><span style="white-space: pre-wrap;">world</span></li></ol>',
@@ -361,6 +390,11 @@ describe('Markdown', () => {
     {
       html: '<p><b><strong style="white-space: pre-wrap;">Hello</strong></b><span style="white-space: pre-wrap;"> world</span></p>',
       md: '**Hello** world',
+    },
+    {
+      html: '<p><b><strong style="white-space: pre-wrap;">Bold label:</strong></b><span style="white-space: pre-wrap;">&nbsp;Following paragraph text.</span></p>',
+      md: '**Bold label:**\u00A0Following paragraph text.',
+      skipExport: true,
     },
     {
       html: '<p><i><b><strong style="white-space: pre-wrap;">Hello</strong></b></i><span style="white-space: pre-wrap;"> world</span></p>',
@@ -389,6 +423,34 @@ describe('Markdown', () => {
     {
       html: '<p><code spellcheck="false" style="white-space: pre-wrap;"><span>$$hello</span></code></p>',
       md: '`$$hello`',
+    },
+    {
+      // Code spans bind tighter than text-match transformers, so the $...$
+      // (HIGHLIGHT_TEXT_MATCH_IMPORT) must not consume across the code spans.
+      // https://github.com/facebook/lexical/issues/8687
+      html: '<p><code spellcheck="false" style="white-space: pre-wrap;"><span>$a</span></code><span style="white-space: pre-wrap;"> </span><code spellcheck="false" style="white-space: pre-wrap;"><span>$b</span></code></p>',
+      md: '`$a` `$b`',
+    },
+    {
+      // Inline code containing a backtick must use a longer fence (CommonMark
+      // code spans) and pad with spaces so it round-trips losslessly.
+      html: '<p><span style="white-space: pre-wrap;">Here: </span><code spellcheck="false" style="white-space: pre-wrap;"><span>a`b</span></code></p>',
+      md: 'Here: `` a`b ``',
+    },
+    {
+      // Two consecutive backticks in the content bump the fence to three.
+      html: '<p><span style="white-space: pre-wrap;">Code: </span><code spellcheck="false" style="white-space: pre-wrap;"><span>a``b</span></code></p>',
+      md: 'Code: ``` a``b ```',
+    },
+    {
+      // Content beginning with a backtick is padded so the fence stays distinct.
+      html: '<p><code spellcheck="false" style="white-space: pre-wrap;"><span>`x</span></code></p>',
+      md: '`` `x ``',
+    },
+    {
+      // The code fence must remain the innermost wrapping, inside bold.
+      html: '<p><b><code spellcheck="false" style="white-space: pre-wrap;"><strong>a`b</strong></code></b></p>',
+      md: '**`` a`b ``**',
     },
     {
       html: '<p><a href="https://lexical.dev"><span style="white-space: pre-wrap;">Hello</span></a><span style="white-space: pre-wrap;"> world</span></p>',
@@ -728,6 +790,10 @@ describe('Markdown', () => {
       md: '*text**text***',
     },
     {
+      html: '<p><b><strong style="white-space: pre-wrap;">text</strong></b><i><b><strong style="white-space: pre-wrap;">text</strong></b></i></p>',
+      md: '**text*text***',
+    },
+    {
       html: '<p><i><em style="white-space: pre-wrap;">foo**bar</em></i></p>',
       md: '*foo**bar*',
       mdAfterExport: '*foo\\*\\*bar*',
@@ -780,6 +846,11 @@ describe('Markdown', () => {
       html: '<p><span style="white-space: pre-wrap;">foo</span><br><span style="white-space: pre-wrap;">bar</span></p>',
       md: 'foo\\\nbar',
       mdAfterExport: 'foo\nbar',
+    },
+    {
+      html: '<p><span style="white-space: pre-wrap;">foo</span><br><span style="white-space: pre-wrap;">bar</span></p>',
+      md: 'foo  \nbar',
+      skipExport: true,
     },
     {
       html: '<p><span style="white-space: pre-wrap;">foo </span><a href="https://lexical.dev"><span style="white-space: pre-wrap;">bar</span></a><span style="white-space: pre-wrap;">\t</span><span style="white-space: pre-wrap;">baz</span></p>',
@@ -840,9 +911,9 @@ describe('Markdown', () => {
         },
       );
 
-      expect(
-        editor.getEditorState().read(() => $generateHtmlFromNodes(editor)),
-      ).toBe(html);
+      expect(editor.read('latest', () => $generateHtmlFromNodes(editor))).toBe(
+        html,
+      );
     });
   }
 
@@ -884,15 +955,13 @@ describe('Markdown', () => {
       );
 
       expect(
-        editor
-          .getEditorState()
-          .read(() =>
-            $convertToMarkdownString(
-              [...(customTransformers || []), ...TRANSFORMERS],
-              undefined,
-              shouldPreserveNewLines,
-            ),
+        editor.read('latest', () =>
+          $convertToMarkdownString(
+            [...(customTransformers || []), ...TRANSFORMERS],
+            undefined,
+            shouldPreserveNewLines,
           ),
+        ),
       ).toBe(mdAfterExport ?? md);
     });
   }
@@ -938,7 +1007,7 @@ describe('Markdown', () => {
         },
       );
 
-      expect(editor.getEditorState().read(() => $getSelection())).toBe(null);
+      expect(editor.read('latest', () => $getSelection())).toBe(null);
     });
   }
 
@@ -1036,6 +1105,55 @@ describe('Markdown', () => {
     );
   });
 
+  it.each(['1. ', '- ', '* ', '+ '])(
+    'should preserve a heading when typing the "%s" list shortcut',
+    shortcut => {
+      const editor = createHeadlessEditor({
+        nodes: [
+          HeadingNode,
+          ListNode,
+          ListItemNode,
+          QuoteNode,
+          CodeNode,
+          LinkNode,
+        ],
+      });
+
+      registerMarkdownShortcuts(editor, TRANSFORMERS);
+
+      editor.update(
+        () => {
+          const heading = $createHeadingNode('h1');
+          const text = $createTextNode('Welcome to the playground');
+          heading.append(text);
+          $getRoot().append(heading);
+          text.select(0, 0);
+        },
+        {discrete: true},
+      );
+
+      for (const character of shortcut) {
+        editor.update(
+          () => {
+            const selection = $getSelection();
+            if ($isRangeSelection(selection)) {
+              selection.insertText(character);
+            }
+          },
+          {discrete: true},
+        );
+      }
+
+      editor.read(() => {
+        const heading = $getRoot().getFirstChild();
+        expect($isHeadingNode(heading)).toBe(true);
+        expect(heading?.getTextContent()).toBe(
+          `${shortcut}Welcome to the playground`,
+        );
+      });
+    },
+  );
+
   it('can round-trip nested fenced code blocks (4 backticks wrapping 3 backticks)', () => {
     const markdown =
       '````markdown\n' +
@@ -1066,9 +1184,7 @@ describe('Markdown', () => {
     );
 
     expect(
-      editor
-        .getEditorState()
-        .read(() => $convertToMarkdownString(TRANSFORMERS)),
+      editor.read('latest', () => $convertToMarkdownString(TRANSFORMERS)),
     ).toBe(markdown);
   });
 
@@ -1103,9 +1219,7 @@ describe('Markdown', () => {
     );
 
     expect(
-      editor
-        .getEditorState()
-        .read(() => $convertToMarkdownString(TRANSFORMERS)),
+      editor.read('latest', () => $convertToMarkdownString(TRANSFORMERS)),
     ).toBe(markdown);
   });
 
@@ -1128,13 +1242,151 @@ describe('Markdown', () => {
     );
 
     // Export should compute fence to be ```` (4 backticks) since content contains ```
-    const exported = editor
-      .getEditorState()
-      .read(() => $convertToMarkdownString(TRANSFORMERS));
+    const exported = editor.read('latest', () =>
+      $convertToMarkdownString(TRANSFORMERS),
+    );
 
     expect(exported).toBe(
       '````markdown\n```js\nconsole.log("hello");\n```\n````',
     );
+  });
+
+  describe('overlapping inline formats (#4895)', () => {
+    type Run = [text: string, format: number];
+
+    const BOLD = TEXT_TYPE_TO_FORMAT.bold;
+    const ITALIC = TEXT_TYPE_TO_FORMAT.italic;
+    const STRIKE = TEXT_TYPE_TO_FORMAT.strikethrough;
+    const INLINE_CODE = TEXT_TYPE_TO_FORMAT.code;
+
+    function overlapEditor() {
+      return createHeadlessEditor({
+        nodes: [
+          HeadingNode,
+          ListNode,
+          ListItemNode,
+          QuoteNode,
+          CodeNode,
+          LinkNode,
+        ],
+      });
+    }
+
+    /** Reads the document back as merged (text, format) runs. */
+    function $textRuns(): Run[] {
+      const out: Run[] = [];
+      for (const node of $getRoot().getAllTextNodes()) {
+        const format = node.getFormat();
+        const text = node.getTextContent();
+        const last = out[out.length - 1];
+        if (last && last[1] === format) {
+          last[0] += text;
+        } else {
+          out.push([text, format]);
+        }
+      }
+      return out;
+    }
+
+    /**
+     * Builds a one-paragraph document from explicit text-node format runs,
+     * asserts the exported markdown, and verifies that re-importing the
+     * export restores the same formatting.
+     */
+    function expectRoundTrip(runs: Run[], expected: string): void {
+      const editor = overlapEditor();
+      editor.update(
+        () => {
+          const paragraph = $createParagraphNode();
+          for (const [text, format] of runs) {
+            paragraph.append($createTextNode(text).setFormat(format));
+          }
+          $getRoot().clear().append(paragraph);
+        },
+        {discrete: true},
+      );
+      const markdown = editor.read(() =>
+        $convertToMarkdownString(TRANSFORMERS),
+      );
+      expect(markdown).toBe(expected);
+      const reimported = overlapEditor();
+      reimported.update(
+        () => {
+          $convertFromMarkdownString(markdown, TRANSFORMERS);
+        },
+        {discrete: true},
+      );
+      expect(reimported.read($textRuns)).toEqual(runs);
+    }
+
+    it('round-trips bold overlapping italic (the issue example)', () => {
+      expectRoundTrip(
+        [
+          ['he', 0],
+          ['llo', BOLD],
+          ['wor', BOLD | ITALIC],
+          ['ld', ITALIC],
+          ['!', 0],
+        ],
+        'he**llo*wor****ld*!',
+      );
+    });
+
+    it('round-trips italic overlapping bold', () => {
+      expectRoundTrip(
+        [
+          ['a', 0],
+          ['b', ITALIC],
+          ['c', ITALIC | BOLD],
+          ['d', BOLD],
+          ['e', 0],
+        ],
+        'a*b**c*****d**e',
+      );
+    });
+
+    it('round-trips strikethrough overlapping bold', () => {
+      expectRoundTrip(
+        [
+          ['a', STRIKE],
+          ['b', STRIKE | BOLD],
+          ['c', BOLD],
+        ],
+        '~~a**b**~~**c**',
+      );
+    });
+
+    it('round-trips a code span inside a bold run', () => {
+      expectRoundTrip(
+        [
+          ['a', BOLD],
+          ['b', BOLD | INLINE_CODE],
+          ['c', BOLD],
+        ],
+        '**a`b`c**',
+      );
+    });
+
+    it('imports a partially consumed delimiter run like CommonMark', () => {
+      // `**llo*wor****ld*` pairs `*wor*` first, leaving `***` of the four-
+      // marker run; the remaining `**` must still close the `**` opener
+      // (rule of 3 re-measured on the remaining lengths) and the final `*`
+      // opens the trailing emphasis.
+      const editor = overlapEditor();
+      editor.update(
+        () => {
+          $convertFromMarkdownString('he**llo*wor****ld*!', TRANSFORMERS);
+        },
+        {discrete: true},
+      );
+      expect(editor.read($textRuns)).toEqual([
+        ['he', 0],
+        ['llo', BOLD],
+        ['wor', BOLD | ITALIC],
+        ['ld', ITALIC],
+        ['!', 0],
+      ]);
+    });
   });
 
   describe('list marker', () => {
@@ -1153,7 +1405,7 @@ describe('Markdown', () => {
           ),
         {discrete: true},
       );
-      editor.getEditorState().read(() => {
+      editor.read('latest', () => {
         const node = $getRoot().getFirstChild();
         expect(node).toBeInstanceOf(ListNode);
         const marker = node ? $getState(node, listMarkerState) : undefined;
@@ -1226,7 +1478,7 @@ describe('Markdown', () => {
         },
         {discrete: true},
       );
-      editor.getEditorState().read(() => {
+      editor.read('latest', () => {
         const markdownString = $convertToMarkdownString(
           [...TRANSFORMERS],
           undefined,
@@ -1370,6 +1622,222 @@ describe('Markdown', () => {
         '<p><span style="white-space: pre-wrap;">```</span></p>',
       );
     });
+
+    it('should transform element markdown on Enter when trailing space was not required (custom element transformer)', () => {
+      const ELEMENT_TRIGGERED_FENCE: ElementTransformer = {
+        dependencies: [CodeNode],
+        export: () => null,
+        regExp: /^`{3,}(\w+)?$/,
+        replace: (parentNode, children, match, isImport) => {
+          const node = $createCodeNode(match[1]);
+          node.append(...children);
+          parentNode.replace(node);
+          if (!isImport) {
+            node.select(0, 0);
+          }
+        },
+        triggerOnEnter: true,
+        type: 'element',
+      };
+
+      const editor = createHeadlessEditor({
+        nodes: [
+          HeadingNode,
+          ListNode,
+          ListItemNode,
+          QuoteNode,
+          CodeNode,
+          LinkNode,
+        ],
+      });
+
+      registerMarkdownShortcuts(editor, [ELEMENT_TRIGGERED_FENCE]);
+
+      editor.update(
+        () => {
+          const root = $getRoot();
+          const paragraph = $createParagraphNode();
+          root.append(paragraph);
+          paragraph.selectEnd();
+          const selection = $getSelection();
+          if ($isRangeSelection(selection)) {
+            selection.insertText('```');
+          }
+        },
+        {discrete: true},
+      );
+
+      editor.update(
+        () => {
+          editor.dispatchCommand(KEY_ENTER_COMMAND, null);
+        },
+        {discrete: true},
+      );
+
+      expect(editor.read(() => $generateHtmlFromNodes(editor))).toBe(
+        '<pre spellcheck="false"></pre>',
+      );
+    });
+
+    it('should transform heading on Enter when a line was inserted at once (no trailing space listener trigger)', () => {
+      const editor = createHeadlessEditor({
+        nodes: [
+          HeadingNode,
+          ListNode,
+          ListItemNode,
+          QuoteNode,
+          CodeNode,
+          LinkNode,
+        ],
+      });
+
+      registerMarkdownShortcuts(editor, [HEADING]);
+
+      editor.update(
+        () => {
+          const root = $getRoot();
+          const paragraph = $createParagraphNode();
+          root.append(paragraph);
+          paragraph.selectEnd();
+          const selection = $getSelection();
+          if ($isRangeSelection(selection)) {
+            selection.insertText('## ');
+          }
+        },
+        {discrete: true},
+      );
+
+      editor.update(
+        () => {
+          editor.dispatchCommand(KEY_ENTER_COMMAND, null);
+        },
+        {discrete: true},
+      );
+
+      expect(editor.read(() => $generateHtmlFromNodes(editor))).toBe(
+        '<h2><br></h2>',
+      );
+    });
+  });
+
+  describe('composition-end trigger characters (#7026)', () => {
+    function buildEditor() {
+      const editor = createHeadlessEditor({
+        nodes: [
+          HeadingNode,
+          ListNode,
+          ListItemNode,
+          QuoteNode,
+          CodeNode,
+          LinkNode,
+        ],
+      });
+      registerMarkdownShortcuts(editor, TRANSFORMERS);
+      return editor;
+    }
+
+    function $getTextNode(): TextNode {
+      const paragraph = $getRoot().getFirstChildOrThrow();
+      invariant(
+        $isParagraphNode(paragraph),
+        'expected ParagraphNode at root[0]',
+      );
+      const textNode = paragraph.getFirstChildOrThrow();
+      invariant($isTextNode(textNode), 'expected TextNode at paragraph[0]');
+      return textNode;
+    }
+
+    it('applies inline code when the closing backtick is committed via compositionend', () => {
+      const editor = buildEditor();
+
+      // Set up "`hello" with the caret at offset 6. The first backtick was
+      // typed normally, the rest mirrors what is in the editor once the
+      // German dead-key sequence "` h e l l o" has resolved.
+      editor.update(
+        () => {
+          const paragraph = $createParagraphNode();
+          $getRoot().append(paragraph);
+          const textNode = $createTextNode('`hello');
+          paragraph.append(textNode);
+          paragraph.selectEnd();
+        },
+        {discrete: true},
+      );
+
+      // Pretend compositionupdate is in progress: the backtick is pushed into
+      // the text node, the caret advances to the trailing position (collapsed,
+      // matching what a real compositionupdate leaves behind), and the editor
+      // is marked composing so the markdown listener short-circuits on
+      // `editor.isComposing()`.
+      editor.update(
+        () => {
+          const textNode = $getTextNode();
+          $setCompositionKey(textNode.getKey());
+          textNode.setTextContent('`hello`');
+          textNode.select(7, 7);
+        },
+        {discrete: true},
+      );
+
+      // compositionend flush: the text is already in place, the caret stays
+      // where it is, and the COMPOSITION_END_TAG is added. Without the
+      // bypass the listener would bail on `selection.is(prevSelection)`.
+      editor.update(
+        () => {
+          $setCompositionKey(null);
+          $addUpdateTag(COMPOSITION_END_TAG);
+          $getTextNode().markDirty();
+        },
+        {discrete: true},
+      );
+
+      expect(editor.read(() => $generateHtmlFromNodes(editor))).toBe(
+        '<p><code spellcheck="false" style="white-space: pre-wrap;"><span>hello</span></code></p>',
+      );
+    });
+
+    it('applies inline code when compositionend commits the trigger as a multi-character chunk', () => {
+      const editor = buildEditor();
+
+      // Some IMEs (and synthetic event sources) skip compositionupdate and
+      // land the entire composed run on compositionend. Model that here:
+      // the caret stays at offset 6 across the composition, then jumps to 8
+      // when compositionend commits "a`". The transform should still fire,
+      // which requires the offset-jump bypass (the selection-equality bypass
+      // alone is not enough here).
+      editor.update(
+        () => {
+          const paragraph = $createParagraphNode();
+          $getRoot().append(paragraph);
+          const textNode = $createTextNode('`hello');
+          paragraph.append(textNode);
+          paragraph.selectEnd();
+        },
+        {discrete: true},
+      );
+
+      editor.update(
+        () => {
+          $setCompositionKey($getTextNode().getKey());
+        },
+        {discrete: true},
+      );
+
+      editor.update(
+        () => {
+          $setCompositionKey(null);
+          $addUpdateTag(COMPOSITION_END_TAG);
+          const textNode = $getTextNode();
+          textNode.setTextContent('`helloa`');
+          textNode.select(8, 8);
+        },
+        {discrete: true},
+      );
+
+      expect(editor.read(() => $generateHtmlFromNodes(editor))).toBe(
+        '<p><code spellcheck="false" style="white-space: pre-wrap;"><span>helloa</span></code></p>',
+      );
+    });
   });
 });
 
@@ -1438,6 +1906,63 @@ E3
 `);
   });
 
+  it('keeps fence-like lines that carry an info string as code content', () => {
+    const markdown = `
+\`\`\`ts
+const a = 1
+\`\`\`js
+const b = 2
+\`\`\`
+
+After
+`;
+    // The inner ```js carries an info string, so it is part of the code block's
+    // content. The block stays open until the bare ``` fence, and nothing after
+    // it is merged into the fence-like content lines.
+    expect(normalizeMarkdown(markdown, true)).toBe(markdown);
+  });
+
+  it('does not close a longer fence on a shorter inner fence', () => {
+    const markdown = `
+\`\`\`\`
+\`\`\`
+inner
+\`\`\`
+\`\`\`\`
+`;
+    expect(normalizeMarkdown(markdown, true)).toBe(markdown);
+  });
+
+  it('closes a shorter opening fence with a longer closing fence', () => {
+    // Per CommonMark a closing fence may be longer than the opening fence:
+    // https://spec.commonmark.org/0.31.2/#code-fences
+    const markdown = `\`\`\`
+line one
+line two
+\`\`\`\`
+after one
+after two`;
+    // The 4-backtick line closes the 3-backtick block, so the lines inside the
+    // block stay verbatim while the prose after the closing fence is merged.
+    expect(normalizeMarkdown(markdown, true)).toBe(`\`\`\`
+line one
+line two
+\`\`\`\`
+after one after two`);
+  });
+
+  it('keeps content unmerged in an unclosed code block', () => {
+    // Per CommonMark a fenced code block is also closed by the end of the
+    // document, even without a closing fence:
+    // https://spec.commonmark.org/0.31.2/#code-fences
+    const markdown = `\`\`\`
+line one
+line two`;
+    // Without a closing fence everything after the opening fence is code
+    // content, so the lines must stay verbatim instead of being merged as prose.
+    expect(normalizeMarkdown(markdown, true)).toBe(markdown);
+  });
+
   it('tables', () => {
     const markdown = `
 | a | b |
@@ -1472,6 +1997,27 @@ after`;
     const md = '```\ncode\n```\nNext line';
     // The closing ``` must remain on its own line; "Next line" must not be glued to it
     expect(normalizeMarkdown(md, true)).toBe('```\ncode\n```\nNext line');
+  });
+
+  it('preserves hard-break trailing spaces when merging adjacent lines', () => {
+    const md = ['foo  ', 'bar'].join('\n');
+    expect(normalizeMarkdown(md, true)).toBe(md);
+  });
+
+  it('preserves exact hard-break trailing spaces when merging adjacent lines', () => {
+    const md = ['foo   ', 'bar'].join('\n');
+    expect(normalizeMarkdown(md, true)).toBe(md);
+  });
+
+  it('preserves backslash hard-breaks when merging adjacent lines', () => {
+    const md = `foo\\
+bar`;
+    expect(normalizeMarkdown(md, true)).toBe(md);
+  });
+
+  it('merges a soft break before a hard-breaking line', () => {
+    const md = ['foo', 'bar  ', 'baz'].join('\n');
+    expect(normalizeMarkdown(md, true)).toBe(['foo bar  ', 'baz'].join('\n'));
   });
 
   it('treats whitespace-only lines as empty separators (no merge across them)', () => {
@@ -1568,5 +2114,1082 @@ E3
 | c | d |
 `;
     expect(normalizeMarkdown(markdown, false)).toBe(markdown);
+  });
+
+  it('preserves trailing whitespace on content lines', () => {
+    const md = 'foo   \n\nbar';
+    expect(normalizeMarkdown(md, false)).toBe('foo   \n\nbar');
+  });
+
+  it('collapses whitespace-only lines to empty (paragraph separator)', () => {
+    const md = 'A\n   \nB';
+    expect(normalizeMarkdown(md, false)).toBe('A\n\nB');
+  });
+
+  it('preserves leading whitespace on content lines', () => {
+    const md = '   foo\n\nbar';
+    expect(normalizeMarkdown(md, false)).toBe('   foo\n\nbar');
+  });
+
+  it('preserves indented fenced code blocks nested inside tags', () => {
+    const markdown = `
+<Banner>
+\`\`\`ts
+  indent 1;
+\`\`\`
+</Banner>
+`;
+    expect(normalizeMarkdown(markdown, false)).toBe(markdown);
+  });
+});
+
+describe('markdown hard line break import', () => {
+  it('preserves hard line break when shouldPreserveNewLines is true', () => {
+    const md = `foo  
+bar`;
+    const editor = createHeadlessEditor({
+      nodes: [
+        HeadingNode,
+        ListNode,
+        ListItemNode,
+        QuoteNode,
+        CodeNode,
+        LinkNode,
+      ],
+    });
+
+    editor.update(
+      () =>
+        $convertFromMarkdownString(
+          md,
+          [...TRANSFORMERS, HIGHLIGHT_TEXT_MATCH_IMPORT],
+          undefined,
+          true,
+        ),
+      {
+        discrete: true,
+      },
+    );
+
+    expect(
+      editor.read('latest', () =>
+        $convertToMarkdownString(
+          [...TRANSFORMERS, HIGHLIGHT_TEXT_MATCH_IMPORT],
+          undefined,
+          true,
+        ),
+      ),
+    ).toBe(md);
+  });
+
+  it('preserves backslash hard line break when shouldPreserveNewLines is true', () => {
+    const md = `foo\\
+bar`;
+    const editor = createHeadlessEditor({
+      nodes: [
+        HeadingNode,
+        ListNode,
+        ListItemNode,
+        QuoteNode,
+        CodeNode,
+        LinkNode,
+      ],
+    });
+
+    editor.update(
+      () =>
+        $convertFromMarkdownString(
+          md,
+          [...TRANSFORMERS, HIGHLIGHT_TEXT_MATCH_IMPORT],
+          undefined,
+          true,
+        ),
+      {
+        discrete: true,
+      },
+    );
+
+    expect(
+      editor.read('latest', () =>
+        $convertToMarkdownString(
+          [...TRANSFORMERS, HIGHLIGHT_TEXT_MATCH_IMPORT],
+          undefined,
+          true,
+        ),
+      ),
+    ).toBe(md);
+  });
+});
+
+describe('markdown whitespace import (default mode)', () => {
+  function createTestEditor() {
+    return createHeadlessEditor({
+      nodes: [
+        HeadingNode,
+        ListNode,
+        ListItemNode,
+        QuoteNode,
+        CodeNode,
+        LinkNode,
+      ],
+    });
+  }
+
+  function expectRoundTrip(md: string, shouldMergeAdjacentLines = false): void {
+    const editor = createTestEditor();
+
+    editor.update(
+      () =>
+        $convertFromMarkdownString(
+          md,
+          [...TRANSFORMERS, HIGHLIGHT_TEXT_MATCH_IMPORT],
+          undefined,
+          false,
+          shouldMergeAdjacentLines,
+        ),
+      {discrete: true},
+    );
+
+    expect(
+      editor.read('latest', () =>
+        $convertToMarkdownString([
+          ...TRANSFORMERS,
+          HIGHLIGHT_TEXT_MATCH_IMPORT,
+        ]),
+      ),
+    ).toBe(md);
+  }
+
+  function getHardLineBreakMarker(line: string): string {
+    const parsed = parseMarkdownHardLineBreak(line);
+    assert(parsed !== null, 'Expected a hard line break marker');
+    return parsed[1];
+  }
+
+  function expectImportedHardLineBreakMarker(md: string, marker: string): void {
+    const editor = createTestEditor();
+
+    editor.update(
+      () =>
+        $convertFromMarkdownString(md, [
+          ...TRANSFORMERS,
+          HIGHLIGHT_TEXT_MATCH_IMPORT,
+        ]),
+      {discrete: true},
+    );
+
+    editor.read('latest', () => {
+      const block = $getRoot().getFirstChildOrThrow();
+      assert($isElementNode(block), 'Expected an element block');
+      const lineBreakNode = block
+        .getChildren()
+        .find(child => $isLineBreakNode(child));
+
+      assert(lineBreakNode !== undefined, 'Expected a line break node');
+      expect(
+        block
+          .getChildren()
+          .filter($isTextNode)
+          .map(child => child.getTextContent()),
+      ).not.toContain(marker);
+      expect(block.getTextContent()).toBe('foo\nbar');
+      expect($getState(lineBreakNode, hardLineBreakState)).toBe(marker);
+    });
+
+    expect(
+      editor.read('latest', () =>
+        $convertToMarkdownString([
+          ...TRANSFORMERS,
+          HIGHLIGHT_TEXT_MATCH_IMPORT,
+        ]),
+      ),
+    ).toBe(md);
+  }
+
+  it('preserves trailing whitespace on a standalone paragraph line (default mode)', () => {
+    // A paragraph with trailing spaces, separated by an empty line from the next.
+    const md = 'hello world   \n\nnext paragraph';
+    const editor = createTestEditor();
+
+    editor.update(
+      () =>
+        $convertFromMarkdownString(md, [
+          ...TRANSFORMERS,
+          HIGHLIGHT_TEXT_MATCH_IMPORT,
+        ]),
+      {discrete: true},
+    );
+
+    expect(
+      editor.read('latest', () =>
+        $convertToMarkdownString([
+          ...TRANSFORMERS,
+          HIGHLIGHT_TEXT_MATCH_IMPORT,
+        ]),
+      ),
+    ).toBe(md);
+  });
+
+  it('preserves leading whitespace on a standalone paragraph line (default mode)', () => {
+    const md = '   hello world\n\nnext paragraph';
+    const editor = createTestEditor();
+
+    editor.update(
+      () =>
+        $convertFromMarkdownString(md, [
+          ...TRANSFORMERS,
+          HIGHLIGHT_TEXT_MATCH_IMPORT,
+        ]),
+      {discrete: true},
+    );
+
+    expect(
+      editor.read('latest', () =>
+        $convertToMarkdownString([
+          ...TRANSFORMERS,
+          HIGHLIGHT_TEXT_MATCH_IMPORT,
+        ]),
+      ),
+    ).toBe(md);
+  });
+
+  it('preserves two-space hard line break in default mode', () => {
+    // In default mode, "foo  \nbar" has two adjacent non-empty lines → normalizeMarkdown
+    // preserves the trailing "  " which $importBlocks then converts to a LineBreakNode.
+    expectRoundTrip('foo  \nbar');
+  });
+
+  it('preserves exact hard line break spaces in default mode', () => {
+    expectRoundTrip('foo   \nbar');
+  });
+
+  it('preserves backslash hard line break in default mode', () => {
+    expectRoundTrip('foo\\\nbar');
+  });
+
+  it('stores a two-space hard line break marker after formatted text', () => {
+    expectImportedHardLineBreakMarker('**foo**  \nbar', '  ');
+  });
+
+  it('stores exact hard line break spaces after formatted text', () => {
+    expectImportedHardLineBreakMarker('**foo**   \nbar', '   ');
+  });
+
+  it('stores a two-space hard line break marker after a link', () => {
+    expectImportedHardLineBreakMarker(
+      '[foo](https://lexical.dev)  \nbar',
+      '  ',
+    );
+  });
+
+  it('does not infer a hard line break marker from spaces inside a link', () => {
+    const md = '[foo  ](https://lexical.dev)\nbar';
+    const editor = createTestEditor();
+
+    editor.update(
+      () =>
+        $convertFromMarkdownString(md, [
+          ...TRANSFORMERS,
+          HIGHLIGHT_TEXT_MATCH_IMPORT,
+        ]),
+      {discrete: true},
+    );
+
+    editor.read('latest', () => {
+      const block = $getRoot().getFirstChildOrThrow();
+      assert($isElementNode(block), 'Expected an element block');
+      const lineBreakNode = block
+        .getChildren()
+        .find(child => $isLineBreakNode(child));
+
+      assert(lineBreakNode !== undefined, 'Expected a line break node');
+      expect(block.getTextContent()).toBe('foo  \nbar');
+      expect($getState(lineBreakNode, hardLineBreakState)).toBe('');
+    });
+
+    expect(
+      editor.read('latest', () =>
+        $convertToMarkdownString([
+          ...TRANSFORMERS,
+          HIGHLIGHT_TEXT_MATCH_IMPORT,
+        ]),
+      ),
+    ).toBe(md);
+  });
+
+  it('stores a two-space hard line break marker after formatted blockquote text', () => {
+    expectImportedHardLineBreakMarker('> **foo**  \n> bar', '  ');
+  });
+
+  it('preserves two-space hard line break in merge-adjacent mode', () => {
+    expectRoundTrip('foo  \nbar', true);
+  });
+
+  it('preserves exact hard line break spaces in merge-adjacent mode', () => {
+    expectRoundTrip('foo   \nbar', true);
+  });
+
+  it('preserves backslash hard line break in merge-adjacent mode', () => {
+    expectRoundTrip('foo\\\nbar', true);
+  });
+
+  it('preserves two-space hard line break between blockquote lines', () => {
+    expectRoundTrip('> foo  \n> bar');
+  });
+
+  it('preserves exact hard line break spaces between blockquote lines', () => {
+    expectRoundTrip('> foo   \n> bar');
+  });
+
+  it('preserves backslash hard line break between blockquote lines', () => {
+    expectRoundTrip('> foo\\\n> bar');
+  });
+
+  it('exports exact hard line break markers from line break state', () => {
+    const editor = createTestEditor();
+    const marker = getHardLineBreakMarker('foo   ');
+
+    editor.update(
+      () => {
+        const lineBreakNode = $createLineBreakNode();
+        $setState(lineBreakNode, hardLineBreakState, marker);
+        $getRoot()
+          .clear()
+          .append(
+            $createParagraphNode().append(
+              $createTextNode('foo'),
+              lineBreakNode,
+              $createTextNode('bar'),
+            ),
+          );
+      },
+      {discrete: true},
+    );
+
+    expect(
+      editor.read('latest', () =>
+        $convertToMarkdownString([
+          ...TRANSFORMERS,
+          HIGHLIGHT_TEXT_MATCH_IMPORT,
+        ]),
+      ),
+    ).toBe('foo   \nbar');
+  });
+
+  it('does not copy markdown hard line break markers when line breaks are copied', () => {
+    const editor = createTestEditor();
+    const marker = getHardLineBreakMarker('foo   ');
+
+    editor.update(
+      () => {
+        const lineBreakNode = $createLineBreakNode();
+        $setState(lineBreakNode, hardLineBreakState, marker);
+
+        expect($getState(lineBreakNode, hardLineBreakState)).toBe('   ');
+        const copy = $copyNode(lineBreakNode);
+        expect($getState(copy, hardLineBreakState)).toBe('');
+        expect($getState(lineBreakNode, hardLineBreakState)).toBe('   ');
+      },
+      {discrete: true},
+    );
+  });
+});
+
+// Tests for issue #8012: negative lookbehind assertions (?<!) throw a SyntaxError
+// in Safari < 16.4 at RegExp construction time, crashing the entire editor.
+// The fix captures the preceding character in group 1 instead.
+describe('markdown Safari compatibility (issue #8012)', () => {
+  function createTestEditor() {
+    return createHeadlessEditor({
+      nodes: [
+        HeadingNode,
+        ListNode,
+        ListItemNode,
+        QuoteNode,
+        CodeNode,
+        LinkNode,
+      ],
+    });
+  }
+
+  function roundtrip(md: string): string {
+    const editor = createTestEditor();
+    editor.update(() => $convertFromMarkdownString(md, TRANSFORMERS), {
+      discrete: true,
+    });
+    return editor.read('latest', () => $convertToMarkdownString(TRANSFORMERS));
+  }
+
+  it('does not throw when constructing markdown regex patterns', () => {
+    expect(() => {
+      const editor = createTestEditor();
+      editor.update(() => $convertFromMarkdownString('`hello`', TRANSFORMERS), {
+        discrete: true,
+      });
+    }).not.toThrow();
+  });
+
+  it('parses a code span at the start of a string', () => {
+    expect(roundtrip('`hello` world')).toBe('`hello` world');
+  });
+
+  it('parses a code span in the middle of text', () => {
+    expect(roundtrip('foo `code` bar')).toBe('foo `code` bar');
+  });
+
+  it('parses multiple code spans on the same line', () => {
+    expect(roundtrip('`a` and `b`')).toBe('`a` and `b`');
+  });
+
+  it('does not parse a backtick preceded by a backslash as a code span', () => {
+    const editor = createTestEditor();
+    editor.update(
+      () => $convertFromMarkdownString('\\`not code\\`', TRANSFORMERS),
+      {discrete: true},
+    );
+    const textContent = editor.read('latest', () =>
+      $getRoot().getTextContent(),
+    );
+    expect(textContent).toBe('`not code`');
+  });
+
+  it('correctly captures code span content', () => {
+    expect(roundtrip('`hello world`')).toBe('`hello world`');
+    expect(roundtrip('foo `bar baz` qux')).toBe('foo `bar baz` qux');
+  });
+
+  it('does not apply emphasis formatting inside a code span', () => {
+    expect(roundtrip('`**not bold**`')).toBe('`**not bold**`');
+  });
+});
+
+describe('inline code with backticks (CommonMark code spans)', () => {
+  function createTestEditor() {
+    return createHeadlessEditor({
+      nodes: [
+        HeadingNode,
+        ListNode,
+        ListItemNode,
+        QuoteNode,
+        CodeNode,
+        LinkNode,
+      ],
+    });
+  }
+
+  function roundtrip(md: string): string {
+    const editor = createTestEditor();
+    editor.update(() => $convertFromMarkdownString(md, TRANSFORMERS), {
+      discrete: true,
+    });
+    return editor.read('latest', () => $convertToMarkdownString(TRANSFORMERS));
+  }
+
+  function exportCodeSpan(content: string): string {
+    const editor = createTestEditor();
+    editor.update(
+      () => {
+        const paragraph = $createParagraphNode();
+        const text = $createTextNode(content);
+        text.toggleFormat('code');
+        paragraph.append(text);
+        $getRoot().append(paragraph);
+      },
+      {discrete: true},
+    );
+    return editor.read('latest', () => $convertToMarkdownString(TRANSFORMERS));
+  }
+
+  it('round-trips code spans whose content contains backticks', () => {
+    expect(roundtrip('Here: `` a`b ``')).toBe('Here: `` a`b ``');
+    expect(roundtrip('Code: ``` a``b ```')).toBe('Code: ``` a``b ```');
+    expect(roundtrip('`` `x ``')).toBe('`` `x ``');
+  });
+
+  it('exports a content-derived fence longer than any backtick run', () => {
+    expect(exportCodeSpan('block code')).toBe('`block code`');
+    expect(exportCodeSpan('a`b')).toBe('`` a`b ``');
+    expect(exportCodeSpan('a``b')).toBe('``` a``b ```');
+    expect(exportCodeSpan('`x')).toBe('`` `x ``');
+  });
+
+  it('normalizes a redundant inline fence to the minimal valid fence', () => {
+    // Both a single- and triple-backtick inline fence with backtick-free
+    // content normalize to a single backtick on export.
+    expect(roundtrip('a `block code` b')).toBe('a `block code` b');
+    expect(roundtrip('a ```block code``` b')).toBe('a `block code` b');
+  });
+
+  it('keeps the code fence innermost when combined with bold', () => {
+    expect(roundtrip('**`` a`b ``**')).toBe('**`` a`b ``**');
+  });
+});
+
+describe('$convertSelectionToMarkdownString', () => {
+  function createTestEditor() {
+    return createHeadlessEditor({
+      nodes: [
+        HeadingNode,
+        ListNode,
+        ListItemNode,
+        QuoteNode,
+        CodeNode,
+        LinkNode,
+      ],
+    });
+  }
+
+  it('converts full selection to markdown', () => {
+    const editor = createTestEditor();
+    editor.update(
+      () => {
+        const root = $getRoot();
+        const paragraph = $createParagraphNode();
+        const text = $createTextNode('Hello World');
+        paragraph.append(text);
+        root.append(paragraph);
+        text.select(0);
+      },
+      {discrete: true},
+    );
+    const result = editor.read('latest', () =>
+      $convertSelectionToMarkdownString(TRANSFORMERS, $getSelection()),
+    );
+    expect(result).toBe('Hello World');
+  });
+
+  it('converts partial text selection to markdown', () => {
+    const editor = createTestEditor();
+    editor.update(
+      () => {
+        const root = $getRoot();
+        const paragraph = $createParagraphNode();
+        const text = $createTextNode('Hello World');
+        paragraph.append(text);
+        root.append(paragraph);
+        text.select(6, 11);
+      },
+      {discrete: true},
+    );
+    const result = editor.read('latest', () =>
+      $convertSelectionToMarkdownString(TRANSFORMERS, $getSelection()),
+    );
+    expect(result).toBe('World');
+  });
+
+  it('converts selection with bold text to markdown', () => {
+    const editor = createTestEditor();
+    editor.update(
+      () => {
+        const root = $getRoot();
+        const paragraph = $createParagraphNode();
+        const normal = $createTextNode('Hello ');
+        const bold = $createTextNode('Bold');
+        bold.toggleFormat('bold');
+        const after = $createTextNode(' World');
+        paragraph.append(normal, bold, after);
+        root.append(paragraph);
+        $setSelectionFromCaretRange(
+          $getCaretRange(
+            $getTextPointCaret(normal, 'next', 0),
+            $getTextPointCaret(bold, 'next', 4),
+          ),
+        );
+      },
+      {discrete: true},
+    );
+    const result = editor.read('latest', () =>
+      $convertSelectionToMarkdownString(TRANSFORMERS, $getSelection()),
+    );
+    expect(result).toBe('Hello **Bold**');
+  });
+
+  it('returns empty string for null selection', () => {
+    const result = $convertSelectionToMarkdownString(TRANSFORMERS, null);
+    expect(result).toBe('');
+  });
+
+  it('returns empty string for collapsed selection', () => {
+    const editor = createTestEditor();
+    editor.update(
+      () => {
+        const root = $getRoot();
+        const paragraph = $createParagraphNode();
+        const text = $createTextNode('Hello World');
+        paragraph.append(text);
+        root.append(paragraph);
+        text.select(5, 5);
+      },
+      {discrete: true},
+    );
+    const result = editor.read('latest', () =>
+      $convertSelectionToMarkdownString(TRANSFORMERS, $getSelection()),
+    );
+    expect(result).toBe('');
+  });
+
+  it('converts backward selection to markdown', () => {
+    const editor = createTestEditor();
+    editor.update(
+      () => {
+        const root = $getRoot();
+        const paragraph = $createParagraphNode();
+        const text = $createTextNode('Hello World');
+        paragraph.append(text);
+        root.append(paragraph);
+        text.select(5, 0);
+      },
+      {discrete: true},
+    );
+    const result = editor.read('latest', () =>
+      $convertSelectionToMarkdownString(TRANSFORMERS, $getSelection()),
+    );
+    expect(result).toBe('Hello');
+  });
+
+  it('converts multi-paragraph selection to markdown', () => {
+    const editor = createTestEditor();
+    editor.update(
+      () => {
+        const root = $getRoot();
+        const p1 = $createParagraphNode();
+        const t1 = $createTextNode('First paragraph');
+        p1.append(t1);
+        const p2 = $createParagraphNode();
+        const t2 = $createTextNode('Second paragraph');
+        p2.append(t2);
+        root.append(p1, p2);
+        $setSelectionFromCaretRange(
+          $getCaretRange(
+            $getTextPointCaret(t1, 'next', 0),
+            $getTextPointCaret(t2, 'next', 'next'),
+          ),
+        );
+      },
+      {discrete: true},
+    );
+    const result = editor.read('latest', () =>
+      $convertSelectionToMarkdownString(TRANSFORMERS, $getSelection()),
+    );
+    expect(result).toBe('First paragraph\n\nSecond paragraph');
+  });
+
+  it('converts selection within a list to markdown', () => {
+    const editor = createTestEditor();
+    editor.update(
+      () => {
+        const root = $getRoot();
+        const list = $createListNode('bullet');
+        const item1 = $createListItemNode();
+        const t1 = $createTextNode('Item 1');
+        item1.append(t1);
+        const item2 = $createListItemNode();
+        const t2 = $createTextNode('Item 2');
+        item2.append(t2);
+        list.append(item1, item2);
+        root.append(list);
+        $setSelectionFromCaretRange(
+          $getCaretRange(
+            $getTextPointCaret(t1, 'next', 0),
+            $getTextPointCaret(t2, 'next', 'next'),
+          ),
+        );
+      },
+      {discrete: true},
+    );
+    const result = editor.read('latest', () =>
+      $convertSelectionToMarkdownString(TRANSFORMERS, $getSelection()),
+    );
+    expect(result).toBe('- Item 1\n- Item 2');
+  });
+
+  it('preserves link when partially selecting link text', () => {
+    const editor = createTestEditor();
+    editor.update(
+      () => {
+        const root = $getRoot();
+        const paragraph = $createParagraphNode();
+        const before = $createTextNode('before ');
+        const linkNode = $createLinkNode('https://example.com');
+        const linkText = $createTextNode('link text');
+        linkNode.append(linkText);
+        const after = $createTextNode(' after');
+        paragraph.append(before, linkNode, after);
+        root.append(paragraph);
+        linkText.select(0, 4);
+      },
+      {discrete: true},
+    );
+    const result = editor.read('latest', () =>
+      $convertSelectionToMarkdownString(TRANSFORMERS, $getSelection()),
+    );
+    expect(result).toBe('[link](https://example.com)');
+  });
+
+  it('list partial selection only includes selected items', () => {
+    const editor = createTestEditor();
+    editor.update(
+      () => {
+        const root = $getRoot();
+        const list = $createListNode('bullet');
+        const item1 = $createListItemNode();
+        const t1 = $createTextNode('Item 1');
+        item1.append(t1);
+        const item2 = $createListItemNode();
+        const t2 = $createTextNode('Item 2');
+        item2.append(t2);
+        const item3 = $createListItemNode();
+        const t3 = $createTextNode('Item 3');
+        item3.append(t3);
+        list.append(item1, item2, item3);
+        root.append(list);
+        $setSelectionFromCaretRange(
+          $getCaretRange(
+            $getTextPointCaret(t2, 'next', 0),
+            $getTextPointCaret(t3, 'next', 2),
+          ),
+        );
+      },
+      {discrete: true},
+    );
+    const result = editor.read('latest', () =>
+      $convertSelectionToMarkdownString(TRANSFORMERS, $getSelection()),
+    );
+    expect(result).toBe('- Item 2\n- It');
+  });
+
+  it('quote partial selection only includes selected text', () => {
+    const editor = createTestEditor();
+    editor.update(
+      () => {
+        const root = $getRoot();
+        const quote = $createQuoteNode();
+        const t1 = $createTextNode('Line 1');
+        const br = $createLineBreakNode();
+        const t2 = $createTextNode('Line 2');
+        quote.append(t1, br, t2);
+        root.append(quote);
+        t2.select(0);
+      },
+      {discrete: true},
+    );
+    const result = editor.read('latest', () =>
+      $convertSelectionToMarkdownString(TRANSFORMERS, $getSelection()),
+    );
+    expect(result).toBe('> Line 2');
+  });
+
+  it('nested list partial selection only includes selected nested items', () => {
+    const editor = createTestEditor();
+    editor.update(
+      () => {
+        const root = $getRoot();
+        const list = $createListNode('bullet');
+        const item1 = $createListItemNode();
+        const t1 = $createTextNode('Item 1');
+        item1.append(t1);
+        const nestedContainer = $createListItemNode();
+        const nestedList = $createListNode('bullet');
+        const nestedItem1 = $createListItemNode();
+        const nt1 = $createTextNode('Nested A');
+        nestedItem1.append(nt1);
+        const nestedItem2 = $createListItemNode();
+        const nt2 = $createTextNode('Nested B');
+        nestedItem2.append(nt2);
+        nestedList.append(nestedItem1, nestedItem2);
+        nestedContainer.append(nestedList);
+        const item3 = $createListItemNode();
+        const t3 = $createTextNode('Item 3');
+        item3.append(t3);
+        list.append(item1, nestedContainer, item3);
+        root.append(list);
+        nt1.select(0);
+      },
+      {discrete: true},
+    );
+    const result = editor.read('latest', () =>
+      $convertSelectionToMarkdownString(TRANSFORMERS, $getSelection()),
+    );
+    expect(result).toBe('    - Nested A');
+  });
+});
+
+describe('Ordered list start adjustment (#8677)', () => {
+  const baseNodes = [
+    HeadingNode,
+    ListNode,
+    ListItemNode,
+    QuoteNode,
+    CodeNode,
+    LinkNode,
+  ];
+
+  it('updates list start when typed marker precedes an existing ordered list', () => {
+    const editor = createHeadlessEditor({nodes: baseNodes});
+    registerMarkdownShortcuts(editor, TRANSFORMERS);
+
+    editor.update(
+      () => {
+        const root = $getRoot();
+        root.clear();
+        const paragraph = $createParagraphNode();
+        const list = $createListNode('number', 2).append(
+          $createListItemNode().append($createTextNode('A')),
+          $createListItemNode().append($createTextNode('B')),
+        );
+        root.append(paragraph, list);
+        paragraph.selectEnd().insertText('1.');
+      },
+      {discrete: true},
+    );
+
+    editor.update(
+      () => {
+        const selection = $getSelection();
+        if ($isRangeSelection(selection)) {
+          selection.insertText(' ');
+        }
+      },
+      {discrete: true},
+    );
+
+    expect(editor.read(() => $generateHtmlFromNodes(editor))).toBe(
+      '<ol><li value="1"></li><li value="2"><span style="white-space: pre-wrap;">A</span></li><li value="3"><span style="white-space: pre-wrap;">B</span></li></ol>',
+    );
+  });
+
+  it('respects an arbitrary typed start number', () => {
+    const editor = createHeadlessEditor({nodes: baseNodes});
+    registerMarkdownShortcuts(editor, TRANSFORMERS);
+
+    editor.update(
+      () => {
+        const root = $getRoot();
+        root.clear();
+        const paragraph = $createParagraphNode();
+        const list = $createListNode('number', 2).append(
+          $createListItemNode().append($createTextNode('A')),
+        );
+        root.append(paragraph, list);
+        paragraph.selectEnd().insertText('7.');
+      },
+      {discrete: true},
+    );
+
+    editor.update(
+      () => {
+        const selection = $getSelection();
+        if ($isRangeSelection(selection)) {
+          selection.insertText(' ');
+        }
+      },
+      {discrete: true},
+    );
+
+    expect(editor.read(() => $generateHtmlFromNodes(editor))).toBe(
+      '<ol start="7"><li value="7"></li><li value="8"><span style="white-space: pre-wrap;">A</span></li></ol>',
+    );
+  });
+
+  it('does not change start when typed marker follows an existing ordered list', () => {
+    const editor = createHeadlessEditor({nodes: baseNodes});
+    registerMarkdownShortcuts(editor, TRANSFORMERS);
+
+    editor.update(
+      () => {
+        const root = $getRoot();
+        root.clear();
+        const list = $createListNode('number', 2).append(
+          $createListItemNode().append($createTextNode('A')),
+        );
+        const paragraph = $createParagraphNode();
+        root.append(list, paragraph);
+        paragraph.selectEnd().insertText('9.');
+      },
+      {discrete: true},
+    );
+
+    editor.update(
+      () => {
+        const selection = $getSelection();
+        if ($isRangeSelection(selection)) {
+          selection.insertText(' ');
+        }
+      },
+      {discrete: true},
+    );
+
+    // Branch (2) of listReplace: paragraph after the list is appended as the
+    // trailing item and the list start stays at 2. The typed "9." is
+    // overwritten by updateChildrenListItemValue.
+    expect(editor.read(() => $generateHtmlFromNodes(editor))).toBe(
+      '<ol start="2"><li value="2"><span style="white-space: pre-wrap;">A</span></li><li value="3"></li></ol>',
+    );
+  });
+
+  it('creates a fresh ordered list when the next sibling is a different list type', () => {
+    const editor = createHeadlessEditor({nodes: baseNodes});
+    registerMarkdownShortcuts(editor, TRANSFORMERS);
+
+    editor.update(
+      () => {
+        const root = $getRoot();
+        root.clear();
+        const paragraph = $createParagraphNode();
+        const bullets = $createListNode('bullet').append(
+          $createListItemNode().append($createTextNode('A')),
+        );
+        root.append(paragraph, bullets);
+        paragraph.selectEnd().insertText('5.');
+      },
+      {discrete: true},
+    );
+
+    editor.update(
+      () => {
+        const selection = $getSelection();
+        if ($isRangeSelection(selection)) {
+          selection.insertText(' ');
+        }
+      },
+      {discrete: true},
+    );
+
+    // Adjacent list is a different type, so listReplace falls through to the
+    // branch that creates a fresh ordered list with the typed start. The
+    // existing bullet list stays intact.
+    expect(editor.read(() => $generateHtmlFromNodes(editor))).toBe(
+      '<ol start="5"><li value="5"></li></ol><ul><li value="1"><span style="white-space: pre-wrap;">A</span></li></ul>',
+    );
+  });
+});
+
+describe('$generateNodesFromMarkdownString', () => {
+  function createTestEditor() {
+    return createHeadlessEditor({
+      nodes: [
+        HeadingNode,
+        ListNode,
+        ListItemNode,
+        QuoteNode,
+        CodeNode,
+        LinkNode,
+      ],
+    });
+  }
+
+  it('returns nodes without modifying the root', () => {
+    const editor = createTestEditor();
+
+    editor.update(
+      () => {
+        $getRoot()
+          .clear()
+          .append($createParagraphNode().append($createTextNode('existing')));
+      },
+      {discrete: true},
+    );
+
+    let nodes: ReturnType<typeof $generateNodesFromMarkdownString> = [];
+    editor.update(
+      () => {
+        nodes = $generateNodesFromMarkdownString(
+          '# Heading\n\nParagraph',
+          TRANSFORMERS,
+        );
+      },
+      {discrete: true},
+    );
+
+    expect(nodes).toHaveLength(2);
+    expect(nodes[0].getType()).toBe('heading');
+    expect(nodes[1].getType()).toBe('paragraph');
+
+    expect(editor.read(() => $getRoot().getTextContent())).toBe('existing');
+  });
+
+  it('produces the same nodes as $convertFromMarkdownString', () => {
+    const md = '# Title\n\n- item 1\n- item 2\n\n> quote\n\n```\ncode\n```';
+
+    const convertEditor = createTestEditor();
+    convertEditor.update(() => $convertFromMarkdownString(md, TRANSFORMERS), {
+      discrete: true,
+    });
+    const convertHtml = convertEditor.read(() =>
+      $generateHtmlFromNodes(convertEditor),
+    );
+
+    const generateEditor = createTestEditor();
+    generateEditor.update(
+      () => {
+        const nodes = $generateNodesFromMarkdownString(md, TRANSFORMERS);
+        $getRoot()
+          .clear()
+          .append(...nodes);
+      },
+      {discrete: true},
+    );
+    const generateHtml = generateEditor.read(() =>
+      $generateHtmlFromNodes(generateEditor),
+    );
+
+    expect(generateHtml).toBe(convertHtml);
+  });
+
+  it('returned nodes can be inserted at selection', () => {
+    const editor = createTestEditor();
+
+    editor.update(
+      () => {
+        $getRoot()
+          .clear()
+          .append(
+            $createParagraphNode().append($createTextNode('before')),
+            $createParagraphNode().append($createTextNode('after')),
+          );
+      },
+      {discrete: true},
+    );
+
+    editor.update(
+      () => {
+        const root = $getRoot();
+        root.select(1, 1);
+        const nodes = $generateNodesFromMarkdownString(
+          '**bold**',
+          TRANSFORMERS,
+        );
+        const selection = $getSelection();
+        if ($isRangeSelection(selection)) {
+          selection.insertNodes(nodes);
+        }
+      },
+      {discrete: true},
+    );
+
+    const html = editor.read(() => $generateHtmlFromNodes(editor));
+    expect(html).toContain('before');
+    expect(html).toContain('<strong');
+    expect(html).toContain('after');
+  });
+
+  it('handles adjacent line merging (commonmark)', () => {
+    const editor = createTestEditor();
+
+    let nodes: ReturnType<typeof $generateNodesFromMarkdownString> = [];
+    editor.update(
+      () => {
+        nodes = $generateNodesFromMarkdownString(
+          'line 1\nline 2',
+          TRANSFORMERS,
+          false,
+          true,
+        );
+      },
+      {discrete: true},
+    );
+
+    expect(nodes).toHaveLength(1);
+    expect(nodes[0].getType()).toBe('paragraph');
   });
 });

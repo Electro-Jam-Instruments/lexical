@@ -6,7 +6,7 @@
  *
  */
 
-import {EditorThemeClasses} from 'lexical';
+import type {EditorThemeClasses} from 'lexical';
 
 export function getThemeSelector(
   getTheme: () => EditorThemeClasses | null | undefined,
@@ -20,6 +20,6 @@ export function getThemeSelector(
   }
   return className
     .split(/\s+/g)
-    .map((cls) => `.${cls}`)
+    .map(cls => `.${cls}`)
     .join();
 }

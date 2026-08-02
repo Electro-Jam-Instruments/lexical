@@ -6,15 +6,15 @@
  *
  */
 
+import invariant from '@lexical/internal/invariant';
 import {
   $createTextNode,
   $isTextNode,
-  Klass,
-  LexicalEditor,
-  LexicalNode,
+  type Klass,
+  type LexicalEditor,
+  type LexicalNode,
   TextNode,
 } from 'lexical';
-import invariant from 'shared/invariant';
 
 export type EntityMatch = {end: number; start: number};
 
@@ -42,7 +42,7 @@ export function registerLexicalTextEntity<T extends TextNode>(
   getMatch: (text: string) => null | EntityMatch,
   targetNode: Klass<T>,
   createNode: (textNode: TextNode) => T,
-): Array<() => void> {
+): (() => void)[] {
   const isTargetNode = (node: LexicalNode | null | undefined): node is T => {
     return node instanceof targetNode;
   };
@@ -102,7 +102,7 @@ export function registerLexicalTextEntity<T extends TextNode>(
     }
 
     let prevMatchLengthToSkip = 0;
-    // eslint-disable-next-line no-constant-condition
+
     while (true) {
       match = getMatch(text);
       let nextText = match === null ? '' : text.slice(match.end);
@@ -211,7 +211,7 @@ export function registerLexicalTextEntity<T extends TextNode>(
     TextNode,
     $textNodeTransform,
   );
-  const removeReverseNodeTransform = editor.registerNodeTransform<T>(
+  const removeReverseNodeTransform = editor.registerNodeTransform(
     targetNode,
     $reverseNodeTransform,
   );

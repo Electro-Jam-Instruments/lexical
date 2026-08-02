@@ -6,13 +6,16 @@
  *
  */
 
-import type {JSX} from 'react';
-
 import {calculateZoomLevel} from '@lexical/utils';
-import {isDOMNode} from 'lexical';
+import {
+  getComposedEventTarget,
+  isDOMNode,
+  registerEventListener,
+} from 'lexical';
 import * as React from 'react';
 import {
-  ReactNode,
+  type JSX,
+  type ReactNode,
   useCallback,
   useEffect,
   useMemo,
@@ -89,7 +92,7 @@ function DropDownItems({
 
   const registerItem = useCallback(
     (itemRef: React.RefObject<null | HTMLButtonElement>) => {
-      setItems((prev) => (prev ? [...prev, itemRef] : [itemRef]));
+      setItems(prev => (prev ? [...prev, itemRef] : [itemRef]));
     },
     [setItems],
   );
@@ -111,7 +114,7 @@ function DropDownItems({
       // ArrowLeft closes submenu and returns focus to parent
       onClose();
     } else if (key === 'ArrowUp') {
-      setHighlightedItem((prev) => {
+      setHighlightedItem(prev => {
         if (!prev) {
           return items[0];
         }
@@ -119,7 +122,7 @@ function DropDownItems({
         return items[index === -1 ? items.length - 1 : index];
       });
     } else if (key === 'ArrowDown') {
-      setHighlightedItem((prev) => {
+      setHighlightedItem(prev => {
         if (!prev) {
           return items[0];
         }
@@ -137,6 +140,7 @@ function DropDownItems({
 
   useEffect(() => {
     if (items && !highlightedItem) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setHighlightedItem(items[0]);
     }
 
@@ -213,7 +217,10 @@ export default function DropDown({
 
     if (button !== null && showDropDown) {
       const handle = (event: PointerEvent) => {
-        const target = event.target;
+        // click bubbles up from a shadow tree with event.target retargeted
+        // to the shadow host, which would make button.contains(target) false
+        // and immediately close the dropdown. Use the composed-path target.
+        const target = getComposedEventTarget(event);
         if (!isDOMNode(target)) {
           return;
         }
@@ -232,11 +239,7 @@ export default function DropDown({
           }
         }
       };
-      document.addEventListener('click', handle);
-
-      return () => {
-        document.removeEventListener('click', handle);
-      };
+      return registerEventListener(document, 'click', handle);
     }
   }, [dropDownRef, buttonRef, showDropDown, stopCloseOnClickSelf]);
 
@@ -255,11 +258,11 @@ export default function DropDown({
       }
     };
 
-    document.addEventListener('scroll', handleButtonPositionUpdate);
-
-    return () => {
-      document.removeEventListener('scroll', handleButtonPositionUpdate);
-    };
+    return registerEventListener(
+      document,
+      'scroll',
+      handleButtonPositionUpdate,
+    );
   }, [buttonRef, dropDownRef, showDropDown]);
 
   const handleOnClick = (e: React.MouseEvent) => {

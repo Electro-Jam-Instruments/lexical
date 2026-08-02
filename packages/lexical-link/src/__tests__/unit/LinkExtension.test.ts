@@ -5,6 +5,12 @@
  * LICENSE file in the root directory of this source tree.
  *
  */
+import {
+  $createCodeHighlightNode,
+  $createCodeNode,
+  $isCodeNode,
+  CodeExtension,
+} from '@lexical/code-core';
 import {buildEditorFromExtensions, defineExtension} from '@lexical/extension';
 import {
   $createAutoLinkNode,
@@ -13,7 +19,6 @@ import {
   $toggleLink,
   AutoLinkNode,
   LinkExtension,
-  LinkNode,
 } from '@lexical/link';
 import {RichTextExtension} from '@lexical/rich-text';
 import {
@@ -23,7 +28,10 @@ import {
   $getSelection,
   $isParagraphNode,
   $isRangeSelection,
-  TextNode,
+  $isTextNode,
+  configExtension,
+  type LexicalEditorWithDispose,
+  PASTE_COMMAND,
 } from 'lexical';
 import {assert, describe, expect, it} from 'vitest';
 
@@ -38,15 +46,17 @@ describe('Link', () => {
     name: '[root]',
   });
   it('can convert a text node to a link with $toggleLink', () => {
-    const editor = buildEditorFromExtensions(extension);
+    using editor = buildEditorFromExtensions(extension);
     editor.update(
       () => {
-        const textNode: TextNode = $getRoot().getLastDescendant()!;
+        const textNode = $getRoot().getLastDescendant();
+        assert($isTextNode(textNode), 'Expected a TextNode');
         textNode.select(0);
         expect($isLinkNode(textNode.getParent())).toBe(false);
         $toggleLink('https://lexical.dev/');
         expect($isLinkNode(textNode.getParent())).toBe(true);
-        let linkNode: LinkNode = textNode.getParent()!;
+        let linkNode = textNode.getParent();
+        assert($isLinkNode(linkNode), 'Expected a LinkNode');
         expect(linkNode.getURL()).toBe('https://lexical.dev/');
         expect(linkNode.getTarget()).toBe(null);
         expect($getRoot().getTextContent()).toBe('Hello');
@@ -59,7 +69,8 @@ describe('Link', () => {
           title: 'title',
           url: 'https://lexical.dev/',
         });
-        linkNode = textNode.getParent()!;
+        linkNode = textNode.getParent();
+        assert($isLinkNode(linkNode), 'Expected a LinkNode');
         expect(linkNode.getURL()).toBe('https://lexical.dev/');
         expect(linkNode.getTarget()).toBe('_blank');
         expect(linkNode.getRel()).toBe('noopener');
@@ -67,12 +78,11 @@ describe('Link', () => {
       },
       {discrete: true},
     );
-    editor.dispose();
   });
 
   describe('merge adjacent LinkNodes', () => {
     it('merges adjacent LinkNodes with identical attributes', () => {
-      const editor = buildEditorFromExtensions(extension);
+      using editor = buildEditorFromExtensions(extension);
       editor.update(
         () => {
           const p = $getRoot().getFirstChild();
@@ -99,19 +109,18 @@ describe('Link', () => {
         assert($isParagraphNode(p), 'Expecting a ParagraphNode in the root');
         const children = p.getChildren();
         expect(children.length).toBe(1);
-        expect($isLinkNode(children[0])).toBe(true);
-        const link = children[0] as LinkNode;
+        const link = children[0];
+        assert($isLinkNode(link), 'Expected a LinkNode');
         expect(link.getURL()).toBe('https://lexical.dev/');
         expect(link.getTarget()).toBe('_blank');
         expect(link.getRel()).toBe('noreferrer');
         expect(link.getTitle()).toBe('Lexical');
         expect(link.getTextContent()).toBe('Hello World');
       });
-      editor.dispose();
     });
 
     it('does not merge LinkNodes with different URLs', () => {
-      const editor = buildEditorFromExtensions(extension);
+      using editor = buildEditorFromExtensions(extension);
       editor.update(
         () => {
           const p = $getRoot().getFirstChild();
@@ -130,7 +139,6 @@ describe('Link', () => {
         assert($isParagraphNode(p), 'Expecting a ParagraphNode in the root');
         expect(p.getChildren().length).toBe(2);
       });
-      editor.dispose();
     });
 
     it('does not merge LinkNode with AutoLinkNode', () => {
@@ -144,7 +152,7 @@ describe('Link', () => {
         name: '[root-autolink]',
         nodes: () => [AutoLinkNode],
       });
-      const editor = buildEditorFromExtensions(autoLinkExtension);
+      using editor = buildEditorFromExtensions(autoLinkExtension);
       editor.update(
         () => {
           const p = $getRoot().getFirstChild();
@@ -163,11 +171,10 @@ describe('Link', () => {
         assert($isParagraphNode(p), 'Expecting a ParagraphNode in the root');
         expect(p.getChildren().length).toBe(2);
       });
-      editor.dispose();
     });
 
     it('does not merge LinkNodes with different rel', () => {
-      const editor = buildEditorFromExtensions(extension);
+      using editor = buildEditorFromExtensions(extension);
       editor.update(
         () => {
           const p = $getRoot().getFirstChild();
@@ -190,11 +197,10 @@ describe('Link', () => {
         assert($isParagraphNode(p), 'Expecting a ParagraphNode in the root');
         expect(p.getChildren().length).toBe(2);
       });
-      editor.dispose();
     });
 
     it('merges three adjacent identical links into one', () => {
-      const editor = buildEditorFromExtensions(extension);
+      using editor = buildEditorFromExtensions(extension);
       editor.update(
         () => {
           const p = $getRoot().getFirstChild();
@@ -218,11 +224,10 @@ describe('Link', () => {
         expect($isLinkNode(children[0])).toBe(true);
         expect(children[0].getTextContent()).toBe('ABC');
       });
-      editor.dispose();
     });
 
     it('preserves selection when cursor is in the second link during merge', () => {
-      const editor = buildEditorFromExtensions(extension);
+      using editor = buildEditorFromExtensions(extension);
       editor.update(
         () => {
           const p = $getRoot().getFirstChild();
@@ -256,11 +261,10 @@ describe('Link', () => {
           );
         }
       });
-      editor.dispose();
     });
 
     it('merges when only the second link is changed to match the first', () => {
-      const editor = buildEditorFromExtensions(extension);
+      using editor = buildEditorFromExtensions(extension);
       editor.update(
         () => {
           const p = $getRoot().getFirstChild();
@@ -297,11 +301,10 @@ describe('Link', () => {
         expect($isLinkNode(children[0])).toBe(true);
         expect(children[0].getTextContent()).toBe('Hello World');
       });
-      editor.dispose();
     });
 
     it('preserves selection when cursor is in a link that merges into its left neighbor', () => {
-      const editor = buildEditorFromExtensions(extension);
+      using editor = buildEditorFromExtensions(extension);
       editor.update(
         () => {
           const p = $getRoot().getFirstChild();
@@ -345,7 +348,82 @@ describe('Link', () => {
           );
         }
       });
-      editor.dispose();
+    });
+  });
+
+  describe('PASTE_COMMAND with URLs', () => {
+    const pasteUrl = 'https://lexical.dev/';
+
+    function dispatchPaste(editor: LexicalEditorWithDispose) {
+      const clipboardData = new DataTransfer();
+      clipboardData.setData('text/plain', pasteUrl);
+      clipboardData.setData('text/html', pasteUrl);
+      const event = new ClipboardEvent('paste', {clipboardData});
+      editor.dispatchCommand(PASTE_COMMAND, event);
+    }
+
+    it('does not convert pasted URL to link inside a code block', () => {
+      const codeExtension = defineExtension({
+        $initialEditorState: () => {
+          const code = $createCodeNode();
+          code.append($createCodeHighlightNode('const x = 5;'));
+          $getRoot().append(code);
+        },
+        dependencies: [
+          configExtension(LinkExtension, {validateUrl: () => true}),
+          RichTextExtension,
+          CodeExtension,
+        ],
+        name: '[root-code]',
+      });
+      using editor = buildEditorFromExtensions(codeExtension);
+      editor.update(
+        () => {
+          const codeHighlight = $getRoot().getFirstDescendant()!;
+          assert($isTextNode(codeHighlight), 'Expected a TextNode');
+          codeHighlight.select(0, 5);
+          dispatchPaste(editor);
+        },
+        {discrete: true},
+      );
+      editor.read(() => {
+        const code = $getRoot().getFirstChild()!;
+        assert($isCodeNode(code), 'Expected a CodeNode');
+        expect(code.getChildren().some($isLinkNode)).toBe(false);
+      });
+    });
+
+    it('wraps selected plain text in a link when a URL is pasted', () => {
+      const pasteExtension = defineExtension({
+        $initialEditorState: () => {
+          const p = $createParagraphNode();
+          p.append($createTextNode('click here'));
+          $getRoot().append(p);
+        },
+        dependencies: [
+          configExtension(LinkExtension, {validateUrl: () => true}),
+          RichTextExtension,
+        ],
+        name: '[root-paste]',
+      });
+      using editor = buildEditorFromExtensions(pasteExtension);
+      editor.update(
+        () => {
+          const text = $getRoot().getFirstDescendant()!;
+          assert($isTextNode(text), 'Expected a TextNode');
+          text.select(0, text.getTextContentSize());
+          dispatchPaste(editor);
+        },
+        {discrete: true},
+      );
+      editor.read(() => {
+        const p = $getRoot().getFirstChild()!;
+        assert($isParagraphNode(p), 'Expected a ParagraphNode');
+        const link = p.getFirstChild();
+        assert($isLinkNode(link), 'Expected a LinkNode');
+        expect(link.getURL()).toBe(pasteUrl);
+        expect(link.getTextContent()).toBe('click here');
+      });
     });
   });
 });

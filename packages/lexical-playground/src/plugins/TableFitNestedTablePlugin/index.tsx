@@ -6,12 +6,16 @@
  *
  */
 
-import type {LexicalNode} from 'lexical';
-
 import {useLexicalComposerContext} from '@lexical/react/LexicalComposerContext';
 import {$isTableNode, TableNode} from '@lexical/table';
-import {$dfs, $findMatchingParent} from '@lexical/utils';
-import {$getNodeByKey, $isRootOrShadowRoot, LexicalEditor} from 'lexical';
+import {$dfsWithSlots} from '@lexical/utils';
+import {
+  $findMatchingParent,
+  $getNodeByKey,
+  $isRootOrShadowRoot,
+  type LexicalEditor,
+  type LexicalNode,
+} from 'lexical';
 import {useEffect} from 'react';
 
 const PIXEL_VALUE_REG_EXP = /^(\d+(?:\.\d+)?)px$/;
@@ -52,12 +56,12 @@ function getTotalTableWidth(colWidths: readonly number[]): number {
 
 function $calculateResizeRootTables(
   tables: ReadonlySet<TableNode>,
-): ReadonlyArray<TableNode> {
+): readonly TableNode[] {
   const inputTables: ReadonlySet<LexicalNode> = tables;
   const roots: TableNode[] = [];
   for (const table of tables) {
     if (
-      $findMatchingParent(table, (n) => n !== table && inputTables.has(n)) ===
+      $findMatchingParent(table, n => n !== table && inputTables.has(n)) ===
       null
     ) {
       roots.push(table);
@@ -74,8 +78,10 @@ function $resizeDOMColWidthsToFit(
   if (!editorWindow) {
     return;
   }
-  const allNestedTables = $dfs(node)
-    .map((n) => n.node)
+  // $dfsWithSlots (not $dfs) so nested tables sitting inside a slot host
+  // subtree are still discovered. Mirrors LexicalTablePluginHelpers's caller.
+  const allNestedTables = $dfsWithSlots(node)
+    .map(n => n.node)
     .filter($isTableNode);
   for (const table of allNestedTables) {
     const element = editor.getElementByKey(table.getKey());
@@ -125,19 +131,19 @@ export default function TableFitNestedTablePlugin(): null {
   const [editor] = useLexicalComposerContext();
 
   useEffect(() => {
-    return editor.registerMutationListener(TableNode, (nodeMutations) => {
-      editor.getEditorState().read(() => {
+    return editor.registerMutationListener(TableNode, nodeMutations => {
+      editor.read('latest', () => {
         const modifiedTables = new Set<TableNode>();
         for (const [nodeKey, mutation] of nodeMutations) {
           if (mutation === 'created' || mutation === 'updated') {
-            const tableNode = $getNodeByKey<TableNode>(nodeKey);
-            if (tableNode) {
+            const tableNode = $getNodeByKey(nodeKey);
+            if ($isTableNode(tableNode)) {
               modifiedTables.add(tableNode);
             }
           }
         }
         const resizeRoots = $calculateResizeRootTables(modifiedTables);
-        resizeRoots.forEach((root) => {
+        resizeRoots.forEach(root => {
           $resizeDOMColWidthsToFit(editor, root);
         });
       });

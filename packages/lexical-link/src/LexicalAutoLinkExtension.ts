@@ -6,9 +6,6 @@
  *
  */
 
-import type {ElementNode, LexicalEditor, LexicalNode} from 'lexical';
-
-import {mergeRegister} from '@lexical/utils';
 import {
   $createTextNode,
   $getSelection,
@@ -19,6 +16,10 @@ import {
   $isTextNode,
   COMMAND_PRIORITY_LOW,
   defineExtension,
+  type ElementNode,
+  type LexicalEditor,
+  type LexicalNode,
+  mergeRegister,
   shallowMergeConfig,
   TextNode,
 } from 'lexical';
@@ -33,6 +34,11 @@ import {
   TOGGLE_LINK_COMMAND,
 } from './LexicalLinkNode';
 
+/**
+ * A callback invoked when the auto-link plugin creates, updates, or removes an
+ * automatic link. It receives the new `url` and the `prevUrl`; either may be
+ * `null` when a link is added or removed.
+ */
 export type ChangeHandler = (
   url: string | null,
   prevUrl: string | null,
@@ -46,11 +52,23 @@ export interface LinkMatcherResult {
   url: string;
 }
 
+/**
+ * A function that inspects a piece of `text` and returns a
+ * {@link LinkMatcherResult} for the first URL it recognizes, or `null` if none
+ * is found. Used by the auto-link plugin to detect links as the user types.
+ */
 export type LinkMatcher = (text: string) => LinkMatcherResult | null;
 
+/**
+ * Builds a {@link LinkMatcher} from a regular expression. The matched text is
+ * used as the link URL, optionally rewritten by `urlTransformer` (for example
+ * to prepend a protocol). Pass the result to the auto-link plugin's `matchers`.
+ *
+ * @returns A matcher that reports the first match of `regExp` in the text.
+ */
 export function createLinkMatcherWithRegExp(
   regExp: RegExp,
-  urlTransformer: (text: string) => string = (text) => text,
+  urlTransformer: (text: string) => string = text => text,
 ) {
   return (text: string) => {
     const match = regExp.exec(text);
@@ -66,9 +84,56 @@ export function createLinkMatcherWithRegExp(
   };
 }
 
+const URL_REGEX =
+  /((https?:\/\/(www\.)?)|(www\.))[-\p{L}\p{N}@:%._+~#=]{1,256}\.[\p{L}\p{N}]{1,6}(?:[-\p{L}\p{N}()@:%_+.~#?&//=]*[\p{L}\p{N}()@_~#?&//=])?/u;
+
+const EMAIL_REGEX =
+  /(([^<>()[\]\\.,;:\s@"]{1,64}(\.[^<>()[\]\\.,;:\s@"]{1,64}){0,63})|(".{1,255}"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\])|(([a-zA-Z\-0-9]{1,63}\.){1,127}[a-zA-Z]{2,63}))/;
+
+/**
+ * A ready-to-use {@link LinkMatcher} for URLs with full Unicode support
+ * (`\\p{L}`, `\\p{N}`). Handles parenthesis balancing so that Wikipedia-style
+ * URLs like `https://en.wikipedia.org/wiki/Fish_(disambiguation)` are matched
+ * correctly even when wrapped in prose parentheses.
+ */
+export const autoLinkUrlMatcher: LinkMatcher = text => {
+  const match = URL_REGEX.exec(text);
+  if (match === null) {
+    return null;
+  }
+  let matched = match[0];
+  let depth = 0;
+  for (const ch of matched) {
+    if (ch === '(') {
+      depth++;
+    } else if (ch === ')') {
+      depth--;
+    }
+  }
+  while (depth < 0 && matched.endsWith(')')) {
+    matched = matched.slice(0, -1);
+    depth++;
+  }
+  return {
+    index: match.index,
+    length: matched.length,
+    text: matched,
+    url: matched.startsWith('http') ? matched : `https://${matched}`,
+  };
+};
+
+/**
+ * A ready-to-use {@link LinkMatcher} for email addresses. Bounded quantifiers
+ * keep matching linear-time; the limits comfortably exceed RFC 5321 maximums.
+ */
+export const autoLinkEmailMatcher: LinkMatcher = createLinkMatcherWithRegExp(
+  EMAIL_REGEX,
+  text => `mailto:${text}`,
+);
+
 function findFirstMatch(
   text: string,
-  matchers: Array<LinkMatcher>,
+  matchers: LinkMatcher[],
 ): LinkMatcherResult | null {
   for (let i = 0; i < matchers.length; i++) {
     const match = matchers[i](text);
@@ -83,16 +148,22 @@ function findFirstMatch(
 
 const PUNCTUATION_OR_SPACE = /[.,;\s]/;
 
-function isSeparator(char: string): boolean {
-  return PUNCTUATION_OR_SPACE.test(char);
+function isSeparator(char: string, separatorRegex: RegExp): boolean {
+  return separatorRegex.test(char);
 }
 
-function endsWithSeparator(textContent: string): boolean {
-  return isSeparator(textContent[textContent.length - 1]);
+function endsWithSeparator(
+  textContent: string,
+  separatorRegex: RegExp,
+): boolean {
+  return isSeparator(textContent[textContent.length - 1], separatorRegex);
 }
 
-function startsWithSeparator(textContent: string): boolean {
-  return isSeparator(textContent[0]);
+function startsWithSeparator(
+  textContent: string,
+  separatorRegex: RegExp,
+): boolean {
+  return isSeparator(textContent[0], separatorRegex);
 }
 
 /**
@@ -110,7 +181,10 @@ function startsWithTLD(textContent: string, isEmail: boolean): boolean {
   }
 }
 
-function isPreviousNodeValid(node: LexicalNode): boolean {
+function isPreviousNodeValid(
+  node: LexicalNode,
+  separatorRegex: RegExp,
+): boolean {
   let previousNode = node.getPreviousSibling();
   if ($isElementNode(previousNode)) {
     previousNode = previousNode.getLastDescendant();
@@ -119,11 +193,11 @@ function isPreviousNodeValid(node: LexicalNode): boolean {
     previousNode === null ||
     $isLineBreakNode(previousNode) ||
     ($isTextNode(previousNode) &&
-      endsWithSeparator(previousNode.getTextContent()))
+      endsWithSeparator(previousNode.getTextContent(), separatorRegex))
   );
 }
 
-function isNextNodeValid(node: LexicalNode): boolean {
+function isNextNodeValid(node: LexicalNode, separatorRegex: RegExp): boolean {
   let nextNode = node.getNextSibling();
   if ($isElementNode(nextNode)) {
     nextNode = nextNode.getFirstDescendant();
@@ -131,28 +205,30 @@ function isNextNodeValid(node: LexicalNode): boolean {
   return (
     nextNode === null ||
     $isLineBreakNode(nextNode) ||
-    ($isTextNode(nextNode) && startsWithSeparator(nextNode.getTextContent()))
+    ($isTextNode(nextNode) &&
+      startsWithSeparator(nextNode.getTextContent(), separatorRegex))
   );
 }
 
 function isContentAroundIsValid(
   matchStart: number,
   matchEnd: number,
+  separatorRegex: RegExp,
   text: string,
   nodes: TextNode[],
 ): boolean {
   const contentBeforeIsValid =
     matchStart > 0
-      ? isSeparator(text[matchStart - 1])
-      : isPreviousNodeValid(nodes[0]);
+      ? isSeparator(text[matchStart - 1], separatorRegex)
+      : isPreviousNodeValid(nodes[0], separatorRegex);
   if (!contentBeforeIsValid) {
     return false;
   }
 
   const contentAfterIsValid =
     matchEnd < text.length
-      ? isSeparator(text[matchEnd])
-      : isNextNodeValid(nodes[nodes.length - 1]);
+      ? isSeparator(text[matchEnd], separatorRegex)
+      : isNextNodeValid(nodes[nodes.length - 1], separatorRegex);
   return contentAfterIsValid;
 }
 
@@ -281,8 +357,9 @@ function $createAutoLinkNode_(
 
 function $handleLinkCreation(
   nodes: TextNode[],
-  matchers: Array<LinkMatcher>,
+  matchers: LinkMatcher[],
   onChange: ChangeHandler,
+  separatorRegex: RegExp,
 ): void {
   // Early return if any node is already part of an AutoLinkNode (idempotency check)
   for (const node of nodes) {
@@ -293,9 +370,7 @@ function $handleLinkCreation(
   }
 
   let currentNodes = [...nodes];
-  const initialText = currentNodes
-    .map((node) => node.getTextContent())
-    .join('');
+  const initialText = currentNodes.map(node => node.getTextContent()).join('');
   let text = initialText;
   let match;
   let invalidMatchEnd = 0;
@@ -307,6 +382,7 @@ function $handleLinkCreation(
     const isValid = isContentAroundIsValid(
       invalidMatchEnd + matchStart,
       invalidMatchEnd + matchEnd,
+      separatorRegex,
       initialText,
       currentNodes,
     );
@@ -357,8 +433,9 @@ function $handleLinkCreation(
 
 function handleLinkEdit(
   linkNode: AutoLinkNode,
-  matchers: Array<LinkMatcher>,
+  matchers: LinkMatcher[],
   onChange: ChangeHandler,
+  separatorRegex: RegExp,
 ): void {
   // Check children are simple text
   const children = linkNode.getChildren();
@@ -382,7 +459,10 @@ function handleLinkEdit(
   }
 
   // Check neighbors
-  if (!isPreviousNodeValid(linkNode) || !isNextNodeValid(linkNode)) {
+  if (
+    !isPreviousNodeValid(linkNode, separatorRegex) ||
+    !isNextNodeValid(linkNode, separatorRegex)
+  ) {
     replaceWithChildren(linkNode);
     onChange(null, linkNode.getURL());
     return;
@@ -413,8 +493,9 @@ function handleLinkEdit(
 // Given the creation preconditions, these can only be simple text nodes.
 function handleBadNeighbors(
   textNode: TextNode,
-  matchers: Array<LinkMatcher>,
+  matchers: LinkMatcher[],
   onChange: ChangeHandler,
+  separatorRegex: RegExp,
 ): void {
   const parent = textNode.getParent();
   const previousSibling = textNode.getPreviousSibling();
@@ -437,7 +518,7 @@ function handleBadNeighbors(
     ) {
       // If text doesn't start with separator, link should be unwrapped
       // because non-separator after link makes the boundary invalid
-      if (!startsWithSeparator(text)) {
+      if (!startsWithSeparator(text, separatorRegex)) {
         // Non-separator after link - unwrap the link
         replaceWithChildren(previousSibling);
         onChange(null, previousSibling.getURL());
@@ -451,7 +532,7 @@ function handleBadNeighbors(
         const match = findFirstMatch(combinedText, matchers);
         if (match !== null && match.text === combinedText) {
           previousSibling.append(textNode);
-          handleLinkEdit(previousSibling, matchers, onChange);
+          handleLinkEdit(previousSibling, matchers, onChange, separatorRegex);
           onChange(null, previousSibling.getURL());
         }
       }
@@ -463,7 +544,7 @@ function handleBadNeighbors(
   if (
     $isAutoLinkNode(nextSibling) &&
     !nextSibling.getIsUnlinked() &&
-    !endsWithSeparator(text)
+    !endsWithSeparator(text, separatorRegex)
   ) {
     // Check if the nextSibling is still a sibling (hasn't been moved) to prevent loops
     if (
@@ -476,7 +557,7 @@ function handleBadNeighbors(
   }
 }
 
-function replaceWithChildren(node: ElementNode): Array<LexicalNode> {
+function replaceWithChildren(node: ElementNode): LexicalNode[] {
   const children = node.getChildren();
   const childrenLength = children.length;
 
@@ -485,7 +566,7 @@ function replaceWithChildren(node: ElementNode): Array<LexicalNode> {
   }
 
   node.remove();
-  return children.map((child) => child.getLatest());
+  return children.map(child => child.getLatest());
 }
 
 function getTextNodesToMatch(textNode: TextNode): TextNode[] {
@@ -507,22 +588,35 @@ function getTextNodesToMatch(textNode: TextNode): TextNode[] {
 }
 
 export interface AutoLinkConfig {
-  matchers: LinkMatcher[];
   changeHandlers: ChangeHandler[];
-  excludeParents: Array<(parent: ElementNode) => boolean>;
+  excludeParents: ((parent: ElementNode) => boolean)[];
+  matchers: LinkMatcher[];
+  /**
+   * The regular expression used to determine whether surrounding
+   * characters count as separators when validating auto-link
+   * boundaries. Defaults to `/[.,;\s]/`.
+   */
+  separatorRegex: RegExp;
 }
 
 const defaultConfig: AutoLinkConfig = {
   changeHandlers: [],
   excludeParents: [],
   matchers: [],
+  separatorRegex: PUNCTUATION_OR_SPACE,
 };
 
 export function registerAutoLink(
   editor: LexicalEditor,
-  config: AutoLinkConfig = defaultConfig,
+  config: Partial<AutoLinkConfig> &
+    Omit<AutoLinkConfig, 'separatorRegex'> = defaultConfig,
 ): () => void {
-  const {matchers, changeHandlers, excludeParents} = config;
+  const {
+    matchers,
+    changeHandlers,
+    excludeParents,
+    separatorRegex = PUNCTUATION_OR_SPACE,
+  } = config;
   const onChange: ChangeHandler = (url, prevUrl) => {
     for (const handler of changeHandlers) {
       handler(url, prevUrl);
@@ -533,32 +627,37 @@ export function registerAutoLink(
       const parent = textNode.getParentOrThrow();
       const previous = textNode.getPreviousSibling();
       if ($isAutoLinkNode(parent)) {
-        handleLinkEdit(parent, matchers, onChange);
+        handleLinkEdit(parent, matchers, onChange, separatorRegex);
       } else if (
         !$isLinkNode(parent) &&
-        !excludeParents.some((pred) => pred(parent))
+        !excludeParents.some(pred => pred(parent))
       ) {
         if (
           textNode.isSimpleText() &&
-          (startsWithSeparator(textNode.getTextContent()) ||
+          (startsWithSeparator(textNode.getTextContent(), separatorRegex) ||
             !$isAutoLinkNode(previous))
         ) {
           const textNodesToMatch = getTextNodesToMatch(textNode);
-          $handleLinkCreation(textNodesToMatch, matchers, onChange);
+          $handleLinkCreation(
+            textNodesToMatch,
+            matchers,
+            onChange,
+            separatorRegex,
+          );
         }
 
-        handleBadNeighbors(textNode, matchers, onChange);
+        handleBadNeighbors(textNode, matchers, onChange, separatorRegex);
       }
     }),
     editor.registerCommand(
       TOGGLE_LINK_COMMAND,
-      (payload) => {
+      payload => {
         const selection = $getSelection();
         if (payload !== null || !$isRangeSelection(selection)) {
           return false;
         }
         const nodes = selection.extract();
-        nodes.forEach((node) => {
+        nodes.forEach(node => {
           const parent = node.getParent();
 
           if ($isAutoLinkNode(parent)) {
@@ -577,16 +676,15 @@ export function registerAutoLink(
 
 /**
  * An extension to automatically create AutoLinkNode from text
- * that matches the configured matchers. No default implementation
- * is provided for any matcher, see {@link createLinkMatcherWithRegExp}
- * for a helper function to create a matcher from a RegExp, and the
- * Playground's [AutoLinkPlugin](https://github.com/facebook/lexical/blob/main/packages/lexical-playground/src/plugins/AutoLinkPlugin/index.tsx)
- * for some example RegExps that could be used.
+ * that matches the configured matchers. For ready-to-use matchers see
+ * {@link autoLinkUrlMatcher} (Unicode URL detection with parenthesis
+ * balancing) and {@link autoLinkEmailMatcher} (email addresses). To build
+ * a custom matcher from a RegExp, see {@link createLinkMatcherWithRegExp}.
  *
  * The given `matchers` and `changeHandlers` will be merged by
  * concatenating the configured arrays.
  */
-export const AutoLinkExtension = defineExtension({
+export const AutoLinkExtension = /* @__PURE__ */ defineExtension({
   config: defaultConfig,
   dependencies: [LinkExtension],
   mergeConfig(config, overrides) {

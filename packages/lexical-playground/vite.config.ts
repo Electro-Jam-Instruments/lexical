@@ -7,77 +7,77 @@
  */
 
 import babel from '@rollup/plugin-babel';
-import commonjs from '@rollup/plugin-commonjs';
 import react from '@vitejs/plugin-react';
-import {createRequire} from 'node:module';
-import {defineConfig} from 'vite';
+import {defineConfig, type PluginOption, type UserConfig} from 'vite';
 
-import viteMonorepoResolutionPlugin from '../shared/lexicalMonorepoPlugin';
+import transformErrorMessages from '../../scripts/error-codes/transform-error-messages.mjs';
+import viteMonorepoResolutionPlugin from '../../scripts/vite/lexicalMonorepoPlugin';
 import viteCopyEsm from './viteCopyEsm';
 import viteCopyExcalidrawAssets from './viteCopyExcalidrawAssets';
 
-const require = createRequire(import.meta.url);
+// react() returns Plugin[]; widening it to PluginOption[] here lets the plugins
+// array below infer as PluginOption[] (every other entry is a Plugin, which is
+// a PluginOption) without annotating the whole array. That matters because
+// comparing the inferred plugin union against vite's recursively-defined
+// PluginOption type overflows with "Excessive stack depth" on newer vite type
+// definitions; widening the one array-valued entry keeps the check shallow.
+const reactPlugins: PluginOption[] = react();
 
 // https://vitejs.dev/config/
-export default defineConfig(({mode}) => ({
-  build: {
-    outDir: 'build',
-    rollupOptions: {
-      input: {
-        main: new URL('./index.html', import.meta.url).pathname,
-        split: new URL('./split/index.html', import.meta.url).pathname,
-      },
-    },
-    ...(mode === 'production' && {
-      minify: 'terser',
-      terserOptions: {
-        compress: {
-          toplevel: true,
+export default defineConfig(
+  ({mode}): UserConfig => ({
+    build: {
+      outDir: 'build',
+      rollupOptions: {
+        input: {
+          main: new URL('./index.html', import.meta.url).pathname,
+          split: new URL('./split/index.html', import.meta.url).pathname,
         },
-        keep_classnames: true,
       },
-    }),
-  },
-  optimizeDeps: {
-    esbuildOptions: {
       target: 'es2022',
-      treeShaking: true,
+      ...(mode === 'production'
+        ? {
+            minify: 'terser',
+            terserOptions: {
+              compress: {
+                toplevel: true,
+              },
+              keep_classnames: true,
+            },
+          }
+        : {minify: false}),
     },
-  },
-  plugins: [
-    viteMonorepoResolutionPlugin(),
-    babel({
-      babelHelpers: 'bundled',
-      babelrc: false,
-      configFile: false,
-      exclude: '**/node_modules/**',
-      extensions: ['jsx', 'js', 'ts', 'tsx', 'mjs'],
-      plugins: [
-        '@babel/plugin-transform-flow-strip-types',
-        ...(mode !== 'production'
-          ? [
-              [
-                require('../../scripts/error-codes/transform-error-messages'),
-                {
-                  noMinify: true,
-                },
-              ],
-            ]
-          : []),
-      ],
-      presets: [['@babel/preset-react', {runtime: 'automatic'}]],
-    }),
-    react(),
-    ...viteCopyExcalidrawAssets(),
-    viteCopyEsm(),
-    commonjs({
-      // This is required for React 19 (at least 19.0.0-beta-26f2496093-20240514)
-      // because @rollup/plugin-commonjs does not analyze it correctly
-      strictRequires: [/\/node_modules\/(react-dom|react)\/[^/]\.js$/],
-    }),
-  ],
-  server: {
-    host: '0.0.0.0',
-    port: 2112,
-  },
-}));
+    plugins: [
+      viteMonorepoResolutionPlugin(),
+      babel({
+        babelHelpers: 'bundled',
+        babelrc: false,
+        configFile: false,
+        exclude: '**/node_modules/**',
+        extensions: ['jsx', 'js', 'ts', 'tsx', 'mjs'],
+        plugins: [
+          '@babel/plugin-transform-flow-strip-types',
+          ...(mode !== 'production'
+            ? [
+                [
+                  transformErrorMessages,
+                  {
+                    noMinify: true,
+                  },
+                ],
+              ]
+            : []),
+        ],
+        presets: [['@babel/preset-react', {runtime: 'automatic'}]],
+      }),
+      ...reactPlugins,
+      ...viteCopyExcalidrawAssets(),
+      viteCopyEsm(),
+    ],
+    // ACCESSIBILITY FORK: pin the dev server to port 2112 (project convention)
+    server: {
+      host: '0.0.0.0',
+      port: 2112,
+    },
+  }),
+);

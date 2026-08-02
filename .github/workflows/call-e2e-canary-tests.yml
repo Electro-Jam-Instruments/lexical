@@ -10,7 +10,7 @@ jobs:
     strategy:
       matrix:
         os: ['ubuntu-latest']
-        node-version: [22.x]
+        node-version: [24.x]
         browser: ['chromium']
         editor-mode: ['rich-text']
     uses: ./.github/workflows/call-e2e-test.yml
@@ -19,3 +19,4 @@ jobs:
       node-version: ${{ matrix.node-version }}
       browser: ${{ matrix.browser }}
       editor-mode: ${{ matrix.editor-mode }}
+      fail-on-cache-miss: false

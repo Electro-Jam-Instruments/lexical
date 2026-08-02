@@ -8,21 +8,27 @@
 
 import type {ExcalidrawInitialElements} from '../../ui/ExcalidrawModal';
 import type {AppState, BinaryFiles} from '@excalidraw/excalidraw/types';
-import type {NodeKey} from 'lexical';
-import type {JSX} from 'react';
 
 import {useLexicalComposerContext} from '@lexical/react/LexicalComposerContext';
 import {useLexicalEditable} from '@lexical/react/useLexicalEditable';
 import {useLexicalNodeSelection} from '@lexical/react/useLexicalNodeSelection';
-import {mergeRegister} from '@lexical/utils';
 import {
   $getNodeByKey,
   CLICK_COMMAND,
   COMMAND_PRIORITY_LOW,
   isDOMNode,
+  mergeRegister,
+  type NodeKey,
 } from 'lexical';
-import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import * as React from 'react';
+import {
+  type JSX,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 
 import ExcalidrawModal from '../../ui/ExcalidrawModal';
 import ImageResizer from '../../ui/ImageResizer';
@@ -205,7 +211,7 @@ export default function ExcalidrawComponent({
               className="image-edit-button"
               role="button"
               tabIndex={0}
-              onMouseDown={(event) => event.preventDefault()}
+              onMouseDown={event => event.preventDefault()}
               onClick={openModal}
             />
           )}

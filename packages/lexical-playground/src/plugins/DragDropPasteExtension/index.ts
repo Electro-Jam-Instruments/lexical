@@ -20,16 +20,16 @@ const ACCEPTABLE_IMAGE_TYPES = [
   'image/webp',
 ];
 
-export const DragDropPasteExtension = defineExtension({
+export const DragDropPasteExtension = /* @__PURE__ */ defineExtension({
   name: '@lexical/playground/DragDropPaste',
-  register: (editor) =>
+  register: editor =>
     editor.registerCommand(
       DRAG_DROP_PASTE,
-      (files) => {
+      files => {
         (async () => {
           const filesResult = await mediaFileReader(
             files,
-            [ACCEPTABLE_IMAGE_TYPES].flatMap((x) => x),
+            [ACCEPTABLE_IMAGE_TYPES].flatMap(x => x),
           );
           for (const {file, result} of filesResult) {
             if (isMimeType(file, ACCEPTABLE_IMAGE_TYPES)) {

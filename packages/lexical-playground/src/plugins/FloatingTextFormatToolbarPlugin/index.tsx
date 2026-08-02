@@ -6,14 +6,13 @@
  *
  */
 
-import type {JSX} from 'react';
-
 import './index.css';
 
-import {$isCodeHighlightNode} from '@lexical/code';
+import {useMergeRefs} from '@floating-ui/react';
+import {$isCodeNode} from '@lexical/code';
 import {$isLinkNode, TOGGLE_LINK_COMMAND} from '@lexical/link';
 import {useLexicalComposerContext} from '@lexical/react/LexicalComposerContext';
-import {mergeRegister} from '@lexical/utils';
+import {useLexicalRovingTabIndexRef} from '@lexical/react/useLexicalRovingTabIndexRef';
 import {
   $getSelection,
   $isParagraphNode,
@@ -22,11 +21,25 @@ import {
   COMMAND_PRIORITY_LOW,
   FORMAT_TEXT_COMMAND,
   getDOMSelection,
-  LexicalEditor,
+  getDOMSelectionPoints,
+  getParentElement,
+  isDOMDocumentNode,
+  isDOMShadowRoot,
+  type LexicalEditor,
+  mergeRegister,
+  registerEventListener,
+  registerEventListeners,
   SELECTION_CHANGE_COMMAND,
 } from 'lexical';
-import {Dispatch, useCallback, useEffect, useRef, useState} from 'react';
 import * as React from 'react';
+import {
+  type Dispatch,
+  type JSX,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
 import {createPortal} from 'react-dom';
 
 import {getDOMRangeRect} from '../../utils/getDOMRangeRect';
@@ -49,6 +62,7 @@ function TextFormatFloatingToolbar({
   isSubscript,
   isSuperscript,
   setIsLinkEditMode,
+  ref,
 }: {
   editor: LexicalEditor;
   anchorElem: HTMLElement;
@@ -64,8 +78,11 @@ function TextFormatFloatingToolbar({
   isSuperscript: boolean;
   isUnderline: boolean;
   setIsLinkEditMode: Dispatch<boolean>;
+  ref?: React.Ref<HTMLDivElement | null>;
 }): JSX.Element {
   const popupCharStylesEditorRef = useRef<HTMLDivElement | null>(null);
+  const rovingRef = useLexicalRovingTabIndexRef();
+  const mergedRef = useMergeRefs([popupCharStylesEditorRef, rovingRef, ref]);
 
   const insertLink = useCallback(() => {
     if (!isLink) {
@@ -78,7 +95,7 @@ function TextFormatFloatingToolbar({
   }, [editor, isLink, setIsLinkEditMode]);
 
   const insertComment = () => {
-    editor.dispatchCommand(INSERT_INLINE_COMMAND, undefined);
+    editor.dispatchCommand(INSERT_INLINE_COMMAND);
   };
 
   function mouseMoveListener(e: MouseEvent) {
@@ -89,7 +106,13 @@ function TextFormatFloatingToolbar({
       if (popupCharStylesEditorRef.current.style.pointerEvents !== 'none') {
         const x = e.clientX;
         const y = e.clientY;
-        const elementUnderMouse = document.elementFromPoint(x, y);
+        // Guard the root narrowing so a detached popup (its getRootNode
+        // returns the popup itself) doesn't throw on elementFromPoint.
+        const popupRoot = popupCharStylesEditorRef.current.getRootNode();
+        const elementUnderMouse =
+          isDOMDocumentNode(popupRoot) || isDOMShadowRoot(popupRoot)
+            ? popupRoot.elementFromPoint(x, y)
+            : null;
 
         if (!popupCharStylesEditorRef.current.contains(elementUnderMouse)) {
           // Mouse is not over the target element => not a normal click, but probably a drag
@@ -108,13 +131,10 @@ function TextFormatFloatingToolbar({
 
   useEffect(() => {
     if (popupCharStylesEditorRef?.current) {
-      document.addEventListener('mousemove', mouseMoveListener);
-      document.addEventListener('mouseup', mouseUpListener);
-
-      return () => {
-        document.removeEventListener('mousemove', mouseMoveListener);
-        document.removeEventListener('mouseup', mouseUpListener);
-      };
+      return registerEventListeners(document, {
+        mousemove: mouseMoveListener,
+        mouseup: mouseUpListener,
+      });
     }
   }, [popupCharStylesEditorRef]);
 
@@ -129,12 +149,24 @@ function TextFormatFloatingToolbar({
     }
 
     const rootElement = editor.getRootElement();
+    const points =
+      nativeSelection !== null
+        ? getDOMSelectionPoints(nativeSelection, rootElement)
+        : null;
+    // Shadow-aware collapsed check: Selection.isCollapsed retargets to the
+    // shadow host (anchor === focus === host), so it falsely reports `true`
+    // even when the composed range spans real characters.
+    const pointsCollapsed =
+      points === null ||
+      (points.anchorNode === points.focusNode &&
+        points.anchorOffset === points.focusOffset);
     if (
       selection !== null &&
       nativeSelection !== null &&
-      !nativeSelection.isCollapsed &&
+      points !== null &&
+      !pointsCollapsed &&
       rootElement !== null &&
-      rootElement.contains(nativeSelection.anchorNode)
+      rootElement.contains(points.anchorNode)
     ) {
       const rangeRect = getDOMRangeRect(nativeSelection, rootElement);
 
@@ -148,29 +180,24 @@ function TextFormatFloatingToolbar({
   }, [editor, anchorElem, isLink]);
 
   useEffect(() => {
-    const scrollerElem = anchorElem.parentElement;
+    const scrollerElem = getParentElement(anchorElem);
 
     const update = () => {
-      editor.getEditorState().read(() => {
+      editor.read('latest', () => {
         $updateTextFormatFloatingToolbar();
       });
     };
 
-    window.addEventListener('resize', update);
-    if (scrollerElem) {
-      scrollerElem.addEventListener('scroll', update);
-    }
-
-    return () => {
-      window.removeEventListener('resize', update);
-      if (scrollerElem) {
-        scrollerElem.removeEventListener('scroll', update);
-      }
-    };
+    return mergeRegister(
+      registerEventListener(window, 'resize', update),
+      scrollerElem
+        ? registerEventListener(scrollerElem, 'scroll', update)
+        : () => {},
+    );
   }, [editor, $updateTextFormatFloatingToolbar, anchorElem]);
 
   useEffect(() => {
-    editor.getEditorState().read(() => {
+    editor.read('latest', () => {
       $updateTextFormatFloatingToolbar();
     });
     return mergeRegister(
@@ -192,7 +219,11 @@ function TextFormatFloatingToolbar({
   }, [editor, $updateTextFormatFloatingToolbar]);
 
   return (
-    <div ref={popupCharStylesEditorRef} className="floating-text-format-popup">
+    <div
+      ref={mergedRef}
+      className="floating-text-format-popup"
+      role="toolbar"
+      aria-label="Floating text format toolbar">
       {editor.isEditable() && (
         <>
           <button
@@ -321,6 +352,7 @@ function useFloatingTextFormatToolbar(
   editor: LexicalEditor,
   anchorElem: HTMLElement,
   setIsLinkEditMode: Dispatch<boolean>,
+  isRubyEditMode: boolean,
 ): JSX.Element | null {
   const [isText, setIsText] = useState(false);
   const [isLink, setIsLink] = useState(false);
@@ -336,7 +368,7 @@ function useFloatingTextFormatToolbar(
   const [isCode, setIsCode] = useState(false);
 
   const updatePopup = useCallback(() => {
-    editor.getEditorState().read(() => {
+    editor.read('latest', () => {
       // Should not to pop up the floating toolbar when using IME input
       if (editor.isComposing()) {
         return;
@@ -349,7 +381,9 @@ function useFloatingTextFormatToolbar(
         nativeSelection !== null &&
         (!$isRangeSelection(selection) ||
           rootElement === null ||
-          !rootElement.contains(nativeSelection.anchorNode))
+          !rootElement.contains(
+            getDOMSelectionPoints(nativeSelection, rootElement).anchorNode,
+          ))
       ) {
         setIsText(false);
         return;
@@ -382,7 +416,7 @@ function useFloatingTextFormatToolbar(
       }
 
       if (
-        !$isCodeHighlightNode(selection.anchor.getNode()) &&
+        !$isCodeNode(selection.anchor.getNode().getParent()) &&
         selection.getTextContent() !== ''
       ) {
         setIsText($isTextNode(node) || $isParagraphNode(node));
@@ -399,11 +433,31 @@ function useFloatingTextFormatToolbar(
   }, [editor]);
 
   useEffect(() => {
-    document.addEventListener('selectionchange', updatePopup);
-    return () => {
-      document.removeEventListener('selectionchange', updatePopup);
-    };
+    return registerEventListener(document, 'selectionchange', updatePopup);
   }, [updatePopup]);
+
+  // Hide the popup while a drag is in progress. Otherwise it sits on top of
+  // the drag image and the drop target, and re-renders from selectionchange
+  // as the user drags. The popup re-appears once the drag ends (dragend) or
+  // a drop completes on this page (drop).
+  const ref = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const onDragStart = () => {
+      if (ref.current) {
+        ref.current.style.display = 'none';
+      }
+    };
+    const onDragEnd = () => {
+      if (ref.current && ref.current.style.display === 'none') {
+        ref.current.style.display = 'block';
+      }
+    };
+    return registerEventListeners(
+      document,
+      {dragend: onDragEnd, dragstart: onDragStart, drop: onDragEnd},
+      true,
+    );
+  }, []);
 
   useEffect(() => {
     return mergeRegister(
@@ -418,7 +472,7 @@ function useFloatingTextFormatToolbar(
     );
   }, [editor, updatePopup]);
 
-  if (!isText) {
+  if (!isText || isLink || isRubyEditMode) {
     return null;
   }
 
@@ -426,6 +480,7 @@ function useFloatingTextFormatToolbar(
     <TextFormatFloatingToolbar
       editor={editor}
       anchorElem={anchorElem}
+      ref={ref}
       isLink={isLink}
       isBold={isBold}
       isItalic={isItalic}
@@ -446,10 +501,17 @@ function useFloatingTextFormatToolbar(
 export default function FloatingTextFormatToolbarPlugin({
   anchorElem = document.body,
   setIsLinkEditMode,
+  isRubyEditMode = false,
 }: {
   anchorElem?: HTMLElement;
   setIsLinkEditMode: Dispatch<boolean>;
+  isRubyEditMode?: boolean;
 }): JSX.Element | null {
   const [editor] = useLexicalComposerContext();
-  return useFloatingTextFormatToolbar(editor, anchorElem, setIsLinkEditMode);
+  return useFloatingTextFormatToolbar(
+    editor,
+    anchorElem,
+    setIsLinkEditMode,
+    isRubyEditMode,
+  );
 }

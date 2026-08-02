@@ -11,40 +11,69 @@
   ],
   "license": "MIT",
   "version": "0.38.2",
-  "main": "LexicalImage.js",
-  "types": "index.d.ts",
-  "module": "LexicalImage.mjs",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/facebook/lexical",
-    "directory": "packages/lexical-image"
-  },
-  "sideEffects": false,
-  "exports": {
-    ".": {
-      "import": {
-        "types": "./index.d.ts",
-        "development": "./LexicalImage.dev.mjs",
-        "production": "./LexicalImage.prod.mjs",
-        "node": "./LexicalImage.node.mjs",
-        "default": "./LexicalImage.mjs"
-      },
-      "require": {
-        "types": "./index.d.ts",
-        "development": "./LexicalImage.dev.js",
-        "production": "./LexicalImage.prod.js",
-        "default": "./LexicalImage.js"
-      }
-    }
-  },
+  "main": "./dist/LexicalImage.js",
+  "types": "./dist/typescript-too-old.d.ts",
   "dependencies": {
     "@lexical/react": "workspace:*",
     "@lexical/rich-text": "workspace:*",
     "@lexical/utils": "workspace:*",
     "lexical": "workspace:*"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/facebook/lexical.git",
+    "directory": "packages/lexical-image"
+  },
+  "module": "./dist/LexicalImage.mjs",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "source": "./src/index.ts",
+      "import": {
+        "types@<5.2": "./dist/typescript-too-old.d.ts",
+        "types": "./dist/index.d.ts",
+        "development": "./dist/LexicalImage.dev.mjs",
+        "production": "./dist/LexicalImage.prod.mjs",
+        "node": "./dist/LexicalImage.node.mjs",
+        "default": "./dist/LexicalImage.mjs"
+      },
+      "require": {
+        "types@<5.2": "./dist/typescript-too-old.d.ts",
+        "types": "./dist/index.d.ts",
+        "development": "./dist/LexicalImage.dev.js",
+        "production": "./dist/LexicalImage.prod.js",
+        "default": "./dist/LexicalImage.js"
+      }
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "!src/__tests__",
+    "!src/__bench__",
+    "!src/__mocks__",
+    "!src/**/*.test.ts",
+    "!src/**/*.test.tsx",
+    "!src/**/*.bench.ts",
+    "!src/**/*.bench.tsx",
+    "README.md",
+    "LICENSE"
+  ],
+  "typesVersions": {
+    "*": {
+      "*": [
+        "./dist/typescript-too-old.d.ts"
+      ]
+    }
+  },
   "peerDependencies": {
     "react": ">=18.0.0",
-    "react-dom": ">=18.0.0"
+    "react-dom": ">=18.0.0",
+    "typescript": ">=5.2"
+  },
+  "peerDependenciesMeta": {
+    "typescript": {
+      "optional": true
+    }
   }
 }

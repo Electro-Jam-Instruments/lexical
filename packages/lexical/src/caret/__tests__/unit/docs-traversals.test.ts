@@ -6,7 +6,7 @@
  *
  */
 
-import {$createLinkNode, LinkNode} from '@lexical/link';
+import {$createLinkNode, type LinkNode} from '@lexical/link';
 import {
   $createParagraphNode,
   $createTextNode,
@@ -16,13 +16,13 @@ import {
   $getSiblingCaret,
   $isChildCaret,
   $isElementNode,
-  CaretDirection,
-  LexicalNode,
-  NodeCaret,
-  NodeKey,
-  ParagraphNode,
-  SiblingCaret,
-  TextNode,
+  type CaretDirection,
+  type LexicalNode,
+  type NodeCaret,
+  type NodeKey,
+  type ParagraphNode,
+  type SiblingCaret,
+  type TextNode,
 } from 'lexical';
 import {beforeEach, describe, expect, test} from 'vitest';
 
@@ -30,7 +30,7 @@ import {initializeUnitTest} from '../../../__tests__/utils';
 
 // The tests below here are intended to be basically copied from packages/lexical-website/docs/concepts/traversals.md
 describe('traversals.md', () => {
-  initializeUnitTest((testEnv) => {
+  initializeUnitTest(testEnv => {
     describe('Traversal Strategies', () => {
       let paragraphA: ParagraphNode;
       let textA1: TextNode;

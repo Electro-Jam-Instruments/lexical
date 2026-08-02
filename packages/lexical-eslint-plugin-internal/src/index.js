@@ -6,11 +6,20 @@
  *
  */
 
-'use strict';
+import noImportsFromSelf from './rules/no-imports-from-self.js';
+import noOptionalChaining from './rules/no-optional-chaining.js';
+import requirePureAnnotation from './rules/require-pure-annotation.js';
 
-const rules = require('./rules');
+const rules = {
+  'no-imports-from-self': noImportsFromSelf,
+  'no-optional-chaining': noOptionalChaining,
+  'require-pure-annotation': requirePureAnnotation,
+};
 
 // Legacy config format (ESLint 7-8)
+// Note: require-pure-annotation is deliberately not part of the default
+// configs — it only applies to package sources (never tests), so the
+// root eslint.config.mjs enables it with its own files scope.
 const legacyAll = {
   rules: {
     '@lexical/internal/no-imports-from-self': 'error',
@@ -47,4 +56,4 @@ const flatAll = {
 plugin.configs['flat/all'] = flatAll;
 plugin.configs['flat/recommended'] = flatAll;
 
-module.exports = plugin;
+export default plugin;

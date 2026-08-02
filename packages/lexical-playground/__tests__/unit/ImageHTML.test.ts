@@ -13,20 +13,19 @@ import {$selectAll, $setSelection, defineExtension} from 'lexical';
 import {expectHtmlToBeEqual, html} from 'lexical/src/__tests__/utils';
 import {describe, it} from 'vitest';
 
-import {buildHTMLConfig} from '../../src/buildHTMLConfig';
 import {$createImageNode} from '../../src/nodes/ImageNode';
+import {PlaygroundDOMRenderExtension} from '../../src/PlaygroundDOMRenderExtension';
 import {ImagesExtension} from '../../src/plugins/ImagesExtension';
 
 const ImageTestExtension = defineExtension({
-  dependencies: [ImagesExtension],
-  html: buildHTMLConfig(),
+  dependencies: [ImagesExtension, PlaygroundDOMRenderExtension],
   name: '[test]',
 });
 
 describe('ImageNode HTML serialization', () => {
   describe('ImageNode export', () => {
     it('with no caption', async () => {
-      const editor = buildEditorFromExtensions(ImageTestExtension);
+      using editor = buildEditorFromExtensions(ImageTestExtension);
       editor.update(
         () => {
           const imageNode = $createImageNode({
@@ -52,7 +51,7 @@ describe('ImageNode HTML serialization', () => {
       );
     });
     it('with plain text caption', async () => {
-      const editor = buildEditorFromExtensions(ImageTestExtension);
+      using editor = buildEditorFromExtensions(ImageTestExtension);
       editor.update(
         () => {
           const imageNode = $createImageNode({

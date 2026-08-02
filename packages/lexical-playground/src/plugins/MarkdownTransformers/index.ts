@@ -16,12 +16,14 @@ import {
   $convertToMarkdownString,
   CHECK_LIST,
   ELEMENT_TRANSFORMERS,
-  ElementTransformer,
+  type ElementTransformer,
+  isTableRowDivider,
   MULTILINE_ELEMENT_TRANSFORMERS,
+  type MultilineElementTransformer,
   TEXT_FORMAT_TRANSFORMERS,
   TEXT_MATCH_TRANSFORMERS,
-  TextMatchTransformer,
-  Transformer,
+  type TextMatchTransformer,
+  type Transformer,
 } from '@lexical/markdown';
 import {
   $createTableCellNode,
@@ -39,7 +41,7 @@ import {
   $createTextNode,
   $isParagraphNode,
   $isTextNode,
-  LexicalNode,
+  type LexicalNode,
 } from 'lexical';
 
 import {
@@ -69,12 +71,13 @@ export const HR: ElementTransformer = {
 
     line.selectNext();
   },
+  triggerOnEnter: true,
   type: 'element',
 };
 
 export const IMAGE: TextMatchTransformer = {
   dependencies: [ImageNode],
-  export: (node) => {
+  export: node => {
     if (!$isImageNode(node)) {
       return null;
     }
@@ -87,7 +90,6 @@ export const IMAGE: TextMatchTransformer = {
     const [, altText, src] = match;
     const imageNode = $createImageNode({
       altText,
-      maxWidth: 800,
       src,
     });
     textNode.replace(imageNode);
@@ -102,7 +104,7 @@ export const EMOJI: TextMatchTransformer = {
   importRegExp: /:([a-z0-9_]+):/,
   regExp: /:([a-z0-9_]+):$/,
   replace: (textNode, [, name]) => {
-    const emoji = emojiList.find((e) => e.aliases.includes(name))?.emoji;
+    const emoji = emojiList.find(e => e.aliases.includes(name))?.emoji;
     if (emoji) {
       textNode.replace($createTextNode(emoji));
     }
@@ -111,21 +113,69 @@ export const EMOJI: TextMatchTransformer = {
   type: 'text-match',
 };
 
+function escapeInlineEquation(equation: string): string {
+  return equation.replace(/([\\$])/g, '\\$1');
+}
+
+function unescapeInlineEquation(equation: string): string {
+  return equation.replace(/\\([\\$])/g, '$1');
+}
+
+export const BLOCK_EQUATION: MultilineElementTransformer = {
+  dependencies: [EquationNode],
+  export: node => {
+    if (!$isEquationNode(node) || node.isInline()) {
+      return null;
+    }
+
+    return `$$\n${node.getEquation()}\n$$`;
+  },
+  regExpEnd: /^\$\$\s*$/,
+  regExpStart: /^\$\$\s*$/,
+  replace: (rootNode, _children, _startMatch, _endMatch, linesInBetween) => {
+    const equationLines = linesInBetween ?? [];
+    if (equationLines[0] === '') {
+      equationLines.shift();
+    }
+    if (equationLines[equationLines.length - 1] === '') {
+      equationLines.pop();
+    }
+    rootNode.append($createEquationNode(equationLines.join('\n'), false));
+  },
+  type: 'multiline-element',
+};
+
 export const EQUATION: TextMatchTransformer = {
   dependencies: [EquationNode],
-  export: (node) => {
+  export: node => {
     if (!$isEquationNode(node)) {
       return null;
     }
 
-    return `$${node.getEquation()}$`;
+    const equation = node.getEquation();
+    return node.isInline() ? `$${escapeInlineEquation(equation)}$` : null;
   },
-  importRegExp: /\$([^$]+?)\$/,
-  regExp: /\$([^$]+?)\$$/,
+  importRegExp: /\$((?:\\.|[^$\\\n])+?)\$/,
+  regExp: /^\$\$([^$]+?)\$\$$|(?:^|[^$])\$((?:\\.|[^$\\\n])+?)\$$/,
   replace: (textNode, match) => {
-    const [, equation] = match;
-    const equationNode = $createEquationNode(equation, true);
-    textNode.replace(equationNode);
+    const [, firstEquation, secondEquation] = match;
+    const isInline = !match[0].startsWith('$$');
+    const equation = firstEquation ?? secondEquation;
+    const equationNode = isInline
+      ? $createEquationNode(unescapeInlineEquation(equation), true)
+      : new EquationNode(equation, false);
+    if (isInline) {
+      const prefix =
+        match[0][0] === '$' || match[0][0] === '\\' ? '' : match[0][0];
+      if (prefix === '') {
+        textNode.replace(equationNode);
+      } else {
+        textNode.setTextContent(prefix);
+        textNode.insertAfter(equationNode);
+      }
+    } else {
+      textNode.getParentOrThrow().replace(equationNode);
+    }
   },
   trigger: '$',
   type: 'text-match',
@@ -133,7 +183,7 @@ export const EQUATION: TextMatchTransformer = {
 
 export const TWEET: ElementTransformer = {
   dependencies: [TweetNode],
-  export: (node) => {
+  export: node => {
     if (!$isTweetNode(node)) {
       return null;
     }
@@ -146,12 +196,12 @@ export const TWEET: ElementTransformer = {
     const tweetNode = $createTweetNode(id);
     textNode.replace(tweetNode);
   },
+  triggerOnEnter: true,
   type: 'element',
 };
 
 // Very primitive table setup
 const TABLE_ROW_REG_EXP = /^(?:\|)(.+)(?:\|)\s?$/;
-const TABLE_ROW_DIVIDER_REG_EXP = /^(\| ?:?-*:? ?)+\|\s?$/;
 
 export const TABLE: ElementTransformer = {
   dependencies: [TableNode, TableRowNode, TableCellNode],
@@ -185,7 +235,7 @@ export const TABLE: ElementTransformer = {
 
       output.push(`| ${rowOutput.join(' | ')} |`);
       if (isHeaderRow) {
-        output.push(`| ${rowOutput.map((_) => '---').join(' | ')} |`);
+        output.push(`| ${rowOutput.map(_ => '---').join(' | ')} |`);
       }
     }
 
@@ -194,7 +244,7 @@ export const TABLE: ElementTransformer = {
   regExp: TABLE_ROW_REG_EXP,
   replace: (parentNode, _1, match) => {
     // Header row
-    if (TABLE_ROW_DIVIDER_REG_EXP.test(match[0])) {
+    if (isTableRowDivider(match[0])) {
       const table = parentNode.getPreviousSibling();
       if (!table || !$isTableNode(table)) {
         return;
@@ -207,7 +257,7 @@ export const TABLE: ElementTransformer = {
       }
 
       // Add header state to row cells
-      lastRow.getChildren().forEach((cell) => {
+      lastRow.getChildren().forEach(cell => {
         if (!$isTableCellNode(cell)) {
           return;
         }
@@ -299,19 +349,20 @@ const $createTableCell = (textContent: string): TableCellNode => {
   return cell;
 };
 
-const mapToTableCells = (textContent: string): Array<TableCellNode> | null => {
+const mapToTableCells = (textContent: string): TableCellNode[] | null => {
   const match = textContent.match(TABLE_ROW_REG_EXP);
   if (!match || !match[1]) {
     return null;
   }
-  return match[1].split('|').map((text) => $createTableCell(text));
+  return match[1].split('|').map(text => $createTableCell(text));
 };
 
-export const PLAYGROUND_TRANSFORMERS: Array<Transformer> = [
+export const PLAYGROUND_TRANSFORMERS: Transformer[] = [
   TABLE,
   HR,
   IMAGE,
   EMOJI,
+  BLOCK_EQUATION,
   EQUATION,
   TWEET,
   CHECK_LIST,

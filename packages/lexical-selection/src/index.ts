@@ -6,6 +6,8 @@
  *
  */
 
+import {getStyleObjectFromCSS as getStyleObjectFromCSS_} from 'lexical';
+
 import {$trimTextContentFromAnchor} from './lexical-node';
 
 export {
@@ -20,6 +22,7 @@ export {
 export {
   $copyBlockFormatIndent,
   $getSelectionStyleValueForProperty,
+  $isAtEdgeOfElement,
   $isParentElementRTL,
   $moveCaretSelection,
   $moveCharacter,
@@ -34,8 +37,9 @@ export {
   createDOMRange,
   createRectsFromDOMRange,
   getCSSFromStyleObject,
-  getStyleObjectFromCSS,
 } from './utils';
+/** @deprecated moved to the `lexical` package */
+export const getStyleObjectFromCSS = getStyleObjectFromCSS_;
 /** @deprecated renamed to {@link $trimTextContentFromAnchor} by @lexical/eslint-plugin rules-of-lexical */
 export const trimTextContentFromAnchor = $trimTextContentFromAnchor;
 export {

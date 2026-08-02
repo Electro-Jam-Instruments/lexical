@@ -5,7 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  *
  */
-import {$createLinkNode, $isLinkNode, LinkNode} from '@lexical/link';
+import {$createLinkNode, $isLinkNode, type LinkNode} from '@lexical/link';
 import {
   $createListItemNode,
   $createListNode,
@@ -14,13 +14,14 @@ import {
   ListItemNode,
   ListNode,
 } from '@lexical/list';
+import {waitForReact} from '@lexical/react/src/__tests__/utils';
 import {$createTextNode, $getRoot, ParagraphNode, TextNode} from 'lexical';
 import {
+  $assertNodeType,
   expectHtmlToBeEqual,
   html,
   initializeUnitTest,
 } from 'lexical/src/__tests__/utils';
-import {waitForReact} from 'packages/lexical-react/src/__tests__/unit/utils';
 import {assert, describe, expect, test} from 'vitest';
 
 const editorConfig = Object.freeze({
@@ -52,7 +53,7 @@ const editorConfig = Object.freeze({
 });
 
 describe('LexicalListNode tests', () => {
-  initializeUnitTest((testEnv) => {
+  initializeUnitTest(testEnv => {
     test('ListNode.constructor', async () => {
       const {editor} = testEnv;
 
@@ -244,9 +245,12 @@ describe('LexicalListNode tests', () => {
 
         expect(listNode.append(...nodesToAppend)).toBe(listNode);
         expect($isListItemNode(listNode.getFirstChild())).toBe(true);
-        expect(listNode.getFirstChild<ListItemNode>()!.getFirstChild()).toBe(
-          nestedListNode,
-        );
+        expect(
+          $assertNodeType(
+            listNode.getFirstChild(),
+            $isListItemNode,
+          ).getFirstChild(),
+        ).toBe(nestedListNode);
       });
     });
 
@@ -349,18 +353,21 @@ describe('LexicalListNode tests', () => {
       });
 
       expect(testEnv.innerHTML).toEqual(
-        '<ul dir="auto"><li role="checkbox" tabindex="-1" aria-checked="false" value="1"><br></li></ul>',
+        '<ul dir="auto"><li role="checkbox" tabindex="-1" aria-checked="false" value="1"><br data-lexical-managed-linebreak="true"></li></ul>',
       );
 
       await waitForReact(() => {
         editor.update(() => {
-          const listNode = $getRoot().getFirstChildOrThrow<ListNode>();
+          const listNode = $assertNodeType(
+            $getRoot().getFirstChild(),
+            $isListNode,
+          );
           listNode.setListType('bullet');
         });
       });
 
       expect(testEnv.innerHTML).toEqual(
-        '<ul dir="auto"><li value="1"><br></li></ul>',
+        '<ul dir="auto"><li value="1"><br data-lexical-managed-linebreak="true"></li></ul>',
       );
     });
 
@@ -384,10 +391,10 @@ describe('LexicalListNode tests', () => {
         html`
           <ul dir="auto">
             <li role="checkbox" tabindex="-1" value="1" aria-checked="false">
-              <br />
+              <br data-lexical-managed-linebreak="true" />
             </li>
             <li role="checkbox" tabindex="-1" value="2" aria-checked="false">
-              <br />
+              <br data-lexical-managed-linebreak="true" />
             </li>
           </ul>
         `,
@@ -395,8 +402,14 @@ describe('LexicalListNode tests', () => {
 
       await waitForReact(() => {
         editor.update(() => {
-          const listNode = $getRoot().getFirstChildOrThrow<ListNode>();
-          const listItemNode = listNode.getChildAtIndex<ListItemNode>(1)!;
+          const listNode = $assertNodeType(
+            $getRoot().getFirstChild(),
+            $isListNode,
+          );
+          const listItemNode = $assertNodeType(
+            listNode.getChildAtIndex(1),
+            $isListItemNode,
+          );
           listItemNode.append(
             $createListNode('bullet').append($createListItemNode()),
           );
@@ -408,12 +421,12 @@ describe('LexicalListNode tests', () => {
         html`
           <ul dir="auto">
             <li role="checkbox" tabindex="-1" value="1" aria-checked="false">
-              <br />
+              <br data-lexical-managed-linebreak="true" />
             </li>
             <li value="2">
               <ul>
                 <li value="1">
-                  <br />
+                  <br data-lexical-managed-linebreak="true" />
                 </li>
               </ul>
             </li>
@@ -478,22 +491,19 @@ describe('LexicalListNode subclassing tests ($config)', () => {
   function $getListItemValues() {
     return $getRoot()
       .getAllTextNodes()
-      .map((node) => {
+      .map(node => {
         const parent = node.getParent();
         return parent && $isListItemNode(parent) ? parent.getValue() : null;
       });
   }
   class ListNodeSubclass extends ListNode {
-    static getType() {
-      return 'list-subclass';
-    }
-    static clone(node: ListNodeSubclass) {
-      return new ListNodeSubclass(node.__listType, node.__start, node.__key);
+    $config() {
+      return this.config('list-subclass', {extends: ListNode});
     }
   }
   describe('ListNode as-is', () =>
     initializeUnitTest(
-      (testEnv) => {
+      testEnv => {
         test('applies transform', () => {
           const {editor} = testEnv;
           editor.update(
@@ -512,7 +522,7 @@ describe('LexicalListNode subclassing tests ($config)', () => {
     ));
   describe('ListNodeConfig (no replacement)', () =>
     initializeUnitTest(
-      (testEnv) => {
+      testEnv => {
         test('applies transform', () => {
           const {editor} = testEnv;
           editor.update(
@@ -531,7 +541,7 @@ describe('LexicalListNode subclassing tests ($config)', () => {
     ));
   describe('ListNodeSubclass (no replacement)', () =>
     initializeUnitTest(
-      (testEnv) => {
+      testEnv => {
         test('applies transform', () => {
           const {editor} = testEnv;
           editor.update(

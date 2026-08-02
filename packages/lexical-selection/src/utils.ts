@@ -5,11 +5,17 @@
  * LICENSE file in the root directory of this source tree.
  *
  */
-import type {ElementNode, LexicalEditor, LexicalNode} from 'lexical';
 
-import {$getEditor, $isRootNode, $isTextNode} from 'lexical';
-
-import {CSS_TO_STYLES} from './constants';
+import {
+  $getEditor,
+  $isRootNode,
+  $isTextNode,
+  type ElementNode,
+  getRootOwnerDocument,
+  getStyleObjectFromCSS,
+  type LexicalEditor,
+  type LexicalNode,
+} from 'lexical';
 
 function getDOMTextNode(element: Node | null): Text | null {
   let node = element;
@@ -53,7 +59,9 @@ export function createDOMRange(
 ): Range | null {
   const anchorKey = anchorNode.getKey();
   const focusKey = focusNode.getKey();
-  const range = document.createRange();
+  // Resolve through the editor's own document so iframe / shadow-mounted
+  // editors don't end up with a Range bound to the wrong realm.
+  const range = getRootOwnerDocument(editor.getRootElement()).createRange();
   let anchorDOM: Node | Text | null = editor.getElementByKey(anchorKey);
   let focusDOM: Node | Text | null = editor.getElementByKey(focusKey);
   let anchorOffset = _anchorOffset;
@@ -122,9 +130,9 @@ export function createDOMRange(
  * @returns The selectionRects as an array.
  */
 export function createRectsFromDOMRange(
-  editor: LexicalEditor,
+  editor: Pick<LexicalEditor, 'getRootElement'>,
   range: Range,
-): Array<ClientRect> {
+): DOMRect[] {
   const rootElement = editor.getRootElement();
 
   if (rootElement === null) {
@@ -170,53 +178,15 @@ export function createRectsFromDOMRange(
 }
 
 /**
- * Creates an object containing all the styles and their values provided in the CSS string.
- * @param css - The CSS string of styles and their values.
- * @returns The styleObject containing all the styles and their values.
+ * @deprecated Use {@link getStyleObjectFromCSS}, this is just an alias for backwards compatibility.
  */
-export function getStyleObjectFromRawCSS(css: string): Record<string, string> {
-  const styleObject: Record<string, string> = {};
-  if (!css) {
-    return styleObject;
-  }
-  const styles = css.split(';');
-
-  for (const style of styles) {
-    if (style !== '') {
-      const [key, value] = style.split(/:([^]+)/); // split on first colon
-      if (key && value) {
-        styleObject[key.trim()] = value.trim();
-      }
-    }
-  }
-
-  return styleObject;
-}
+export const getStyleObjectFromRawCSS = getStyleObjectFromCSS;
 
 /**
- * Given a CSS string, returns an object from the style cache.
- * @param css - The CSS property as a string.
- * @returns The value of the given CSS property.
- */
-export function getStyleObjectFromCSS(css: string): Record<string, string> {
-  let value = CSS_TO_STYLES.get(css);
-  if (value === undefined) {
-    value = getStyleObjectFromRawCSS(css);
-    CSS_TO_STYLES.set(css, value);
-  }
-
-  if (__DEV__) {
-    // Freeze the value in DEV to prevent accidental mutations
-    Object.freeze(value);
-  }
-
-  return value;
-}
-
-/**
- * Gets the CSS styles from the style object.
- * @param styles - The style object containing the styles to get.
- * @returns A string containing the CSS styles and their values.
+ * Serializes a style object into a CSS declaration string, the inverse of
+ * {@link getStyleObjectFromCSS}.
+ * @param styles - An object mapping CSS property names to their values.
+ * @returns A CSS string of the form `prop: value;` for each entry, concatenated together.
  */
 export function getCSSFromStyleObject(styles: Record<string, string>): string {
   let css = '';

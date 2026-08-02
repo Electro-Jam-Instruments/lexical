@@ -6,14 +6,6 @@
  *
  */
 
-import type {
-  LexicalCommand,
-  LexicalEditor,
-  LexicalEditorWithDispose,
-  NodeKey,
-} from 'lexical';
-import type {JSX} from 'react';
-
 import './ImageNode.css';
 
 import {useCollaborationContext} from '@lexical/react/LexicalCollaborationContext';
@@ -22,7 +14,6 @@ import {useLexicalComposerContext} from '@lexical/react/LexicalComposerContext';
 import {LexicalExtensionEditorComposer} from '@lexical/react/LexicalExtensionEditorComposer';
 import {useLexicalEditable} from '@lexical/react/useLexicalEditable';
 import {useLexicalNodeSelection} from '@lexical/react/useLexicalNodeSelection';
-import {mergeRegister} from '@lexical/utils';
 import {
   $getNodeByKey,
   $getRoot,
@@ -36,12 +27,20 @@ import {
   COMMAND_PRIORITY_LOW,
   createCommand,
   DRAGSTART_COMMAND,
+  getActiveElement,
   KEY_ENTER_COMMAND,
   KEY_ESCAPE_COMMAND,
+  type LexicalCommand,
+  type LexicalEditor,
+  type LexicalEditorWithDispose,
+  mergeRegister,
+  type NodeKey,
+  registerEventListener,
   SELECTION_CHANGE_COMMAND,
 } from 'lexical';
 import * as React from 'react';
 import {
+  type JSX,
   Suspense,
   useCallback,
   useEffect,
@@ -64,7 +63,7 @@ type ImageStatus =
 const imageCache = new Map<string, Promise<ImageStatus> | ImageStatus>();
 
 export const RIGHT_CLICK_IMAGE_COMMAND: LexicalCommand<MouseEvent> =
-  createCommand('RIGHT_CLICK_IMAGE_COMMAND');
+  /* @__PURE__ */ createCommand('RIGHT_CLICK_IMAGE_COMMAND');
 
 function DisableCaptionOnBlur({
   setShowCaption,
@@ -92,7 +91,7 @@ function useSuspenseImage(src: string): ImageStatus {
   if (cached && 'error' in cached && typeof cached.error === 'boolean') {
     return cached;
   } else if (!cached) {
-    cached = new Promise<ImageStatus>((resolve) => {
+    cached = new Promise<ImageStatus>(resolve => {
       const img = new Image();
       img.src = src;
       img.onload = () =>
@@ -102,7 +101,7 @@ function useSuspenseImage(src: string): ImageStatus {
           width: img.naturalWidth,
         });
       img.onerror = () => resolve({error: true});
-    }).then((rval) => {
+    }).then(rval => {
       imageCache.set(src, rval);
       return rval;
     });
@@ -268,7 +267,7 @@ export default function ImageComponent({
   const isInNodeSelection = useMemo(
     () =>
       isSelected &&
-      editor.getEditorState().read(() => {
+      editor.read('latest', () => {
         const selection = $getSelection();
         return $isNodeSelection(selection) && selection.has(nodeKey);
       }),
@@ -276,7 +275,7 @@ export default function ImageComponent({
   );
 
   const $onEnter = useCallback(
-    (event: KeyboardEvent) => {
+    (event: KeyboardEvent | null) => {
       const latestSelection = $getSelection();
       const buttonElem = buttonRef.current;
       if (
@@ -287,14 +286,20 @@ export default function ImageComponent({
         if (showCaption) {
           // Move focus into nested editor
           $setSelection(null);
-          event.preventDefault();
+          if (event !== null) {
+            event.preventDefault();
+          }
           caption.focus();
           return true;
         } else if (
           buttonElem !== null &&
-          buttonElem !== document.activeElement
+          // getActiveElement rather than document.activeElement, which reports
+          // the shadow host when the editor is in a shadow root.
+          buttonElem !== getActiveElement(buttonElem)
         ) {
-          event.preventDefault();
+          if (event !== null) {
+            event.preventDefault();
+          }
           buttonElem.focus();
           return true;
         }
@@ -349,7 +354,7 @@ export default function ImageComponent({
 
   const onRightClick = useCallback(
     (event: MouseEvent): void => {
-      editor.getEditorState().read(() => {
+      editor.read('latest', () => {
         const latestSelection = $getSelection();
         const domElement = event.target as HTMLElement;
         if (
@@ -376,7 +381,7 @@ export default function ImageComponent({
       ),
       editor.registerCommand(
         DRAGSTART_COMMAND,
-        (event) => {
+        event => {
           if (event.target === imageRef.current) {
             // TODO This is just a temporary workaround for FF to behave like other browsers.
             // Ideally, this handles drag & drop too (and all browsers).
@@ -391,12 +396,8 @@ export default function ImageComponent({
   }, [editor]);
   useEffect(() => {
     return mergeRegister(
-      editor.registerCommand<MouseEvent>(
-        CLICK_COMMAND,
-        onClick,
-        COMMAND_PRIORITY_LOW,
-      ),
-      editor.registerCommand<MouseEvent>(
+      editor.registerCommand(CLICK_COMMAND, onClick, COMMAND_PRIORITY_LOW),
+      editor.registerCommand(
         RIGHT_CLICK_IMAGE_COMMAND,
         onClick,
         COMMAND_PRIORITY_LOW,
@@ -407,11 +408,13 @@ export default function ImageComponent({
         $onEscape,
         COMMAND_PRIORITY_LOW,
       ),
-      editor.registerRootListener((rootElement) => {
+      editor.registerRootListener(rootElement => {
         if (rootElement) {
-          rootElement.addEventListener('contextmenu', onRightClick);
-          return () =>
-            rootElement.removeEventListener('contextmenu', onRightClick);
+          return registerEventListener(
+            rootElement,
+            'contextmenu',
+            onRightClick,
+          );
         }
       }),
     );
@@ -493,6 +496,7 @@ export default function ImageComponent({
                   id={caption.getKey()}
                   providerFactory={createWebsocketProvider}
                   shouldBootstrap={true}
+                  selectionHighlight={true}
                 />
               ) : null}
               {showNestedEditorTreeView === true ? <TreeViewPlugin /> : null}

@@ -5,7 +5,6 @@
  * LICENSE file in the root directory of this source tree.
  *
  */
-import type {Klass, LexicalEditor, LexicalNode} from 'lexical';
 
 import {$unwrapAndFilterDescendants} from '@lexical/utils';
 import {
@@ -14,6 +13,9 @@ import {
   $getRoot,
   $isParagraphNode,
   $isTextNode,
+  type Klass,
+  type LexicalEditor,
+  type LexicalNode,
   ParagraphNode,
 } from 'lexical';
 import {createTestEditor} from 'lexical/src/__tests__/utils';
@@ -69,7 +71,7 @@ describe('$unwrapAndFilterDescendants', () => {
       {discrete: true},
     );
   });
-  [0, 1, 2].forEach((depth) =>
+  [0, 1, 2].forEach(depth =>
     it(`Can un-nest children at depth ${depth}`, () => {
       editor.update(
         () => {

@@ -77,17 +77,18 @@ function $textNodeTransform(node: TextNode): void {
   }
 }
 
-export const EmojisExtension = defineExtension({
+export const EmojisExtension = /* @__PURE__ */ defineExtension({
   name: '@lexical/playground/Emojis',
-  register: (editor) => {
+  register: editor => {
     // Register transform for regular TextNode
     const unregisterTextNode = editor.registerNodeTransform(
       TextNode,
       $textNodeTransform,
     );
 
-    // Also register transform for AccessibleTextNode (used when useCSSFormatting is enabled)
-    // AccessibleTextNode extends TextNode but has a different type, so we need both transforms
+    // ACCESSIBILITY FORK: also register the transform for AccessibleTextNode
+    // (used when useCSSFormatting is enabled). AccessibleTextNode extends
+    // TextNode but has a different type, so we need both transforms.
     let unregisterAccessibleTextNode: (() => void) | null = null;
     if (editor.hasNodes([AccessibleTextNode])) {
       unregisterAccessibleTextNode = editor.registerNodeTransform(

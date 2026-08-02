@@ -8,14 +8,10 @@
 
 // From: https://github.com/payloadcms/payload/blob/main/packages/eslint-plugin/customRules/no-imports-from-self.js
 
-'use strict';
+import fs from 'node:fs';
+import path from 'node:path';
 
-const fs = require('fs');
-const path = require('node:path');
-
-const {
-  PackageMetadata,
-} = require('../../../../scripts/shared/PackageMetadata.js');
+import {PackageMetadata} from '../../../../scripts/shared/PackageMetadata.mjs';
 
 /**
  * @param {string} fn
@@ -25,8 +21,45 @@ function removeExtension(fn) {
   return fn.replace(/\.m?(ts|js)x?$/, '');
 }
 
+/**
+ * @type {Map<string, PackageMetadata>}
+ */
+const packageMetadataCache = new Map();
+
+/**
+ * @param {string} startDir
+ * @returns {PackageMetadata | null}
+ */
+function getNearestPackageJsonMetadata(startDir) {
+  /** @type {Set<string>} */
+  const dirs = new Set();
+  /** @type {PackageMetadata | null} */
+  let packageMetadata = null;
+  for (
+    let currentDir = startDir;
+    !dirs.has(currentDir) && currentDir.length > 0;
+    currentDir = path.dirname(currentDir)
+  ) {
+    packageMetadata = packageMetadataCache.get(currentDir);
+    if (!packageMetadata) {
+      dirs.add(currentDir);
+      const pkgPath = path.join(currentDir, 'package.json');
+      if (fs.existsSync(pkgPath)) {
+        packageMetadata = new PackageMetadata(pkgPath);
+      }
+    }
+    if (packageMetadata) {
+      for (const dir of dirs) {
+        packageMetadataCache.set(dir, packageMetadata);
+      }
+      break;
+    }
+  }
+  return packageMetadata;
+}
+
 /** @type {import('eslint').Rule.RuleModule} */
-module.exports = {
+const rule = {
   create(context) {
     /** @type {PackageMetadata | null} */
     let packageMetadata = null;
@@ -61,7 +94,7 @@ module.exports = {
               suggestedModuleName: `'${invalidPackage.getNpmName()}'`,
             };
             /** @type {import('eslint').Rule.ReportFixer} */
-            const fix = (fixer) =>
+            const fix = fixer =>
               fixer.replaceText(node.source, data.suggestedModuleName);
             context.report({
               data,
@@ -89,7 +122,7 @@ module.exports = {
             )}'`,
           };
           /** @type {import('eslint').Rule.ReportFixer} */
-          const fix = (fixer) =>
+          const fix = fixer =>
             fixer.replaceText(node.source, data.suggestedModuleName);
           context.report({
             data,
@@ -142,39 +175,4 @@ module.exports = {
   },
 };
 
-/**
- * @type {Map<string, PackageMetadata>}
- */
-const packageMetadataCache = new Map();
-
-/**
- * @param {string} startDir
- * @returns {PackageMetadata | null}
- */
-function getNearestPackageJsonMetadata(startDir) {
-  /** @type {Set<string>} */
-  const dirs = new Set();
-  /** @type {PackageMetadata | null} */
-  let packageMetadata = null;
-  for (
-    let currentDir = startDir;
-    !dirs.has(currentDir) && currentDir.length > 0;
-    currentDir = path.dirname(currentDir)
-  ) {
-    packageMetadata = packageMetadataCache.get(currentDir);
-    if (!packageMetadata) {
-      dirs.add(currentDir);
-      const pkgPath = path.join(currentDir, 'package.json');
-      if (fs.existsSync(pkgPath)) {
-        packageMetadata = new PackageMetadata(pkgPath);
-      }
-    }
-    if (packageMetadata) {
-      for (const dir of dirs) {
-        packageMetadataCache.set(dir, packageMetadata);
-      }
-      break;
-    }
-  }
-  return packageMetadata;
-}
+export default rule;

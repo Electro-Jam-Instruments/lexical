@@ -6,8 +6,6 @@
  *
  */
 
-import type {JSX} from 'react';
-
 import 'react-day-picker/style.css';
 import './DateTimeNode.css';
 
@@ -34,10 +32,11 @@ import {
   IS_ITALIC,
   IS_STRIKETHROUGH,
   IS_UNDERLINE,
-  NodeKey,
+  type NodeKey,
+  registerEventListener,
 } from 'lexical';
 import * as React from 'react';
-import {useEffect, useRef, useState} from 'react';
+import {type JSX, useEffect, useRef, useState} from 'react';
 import {DayPicker} from 'react-day-picker';
 
 import {$isDateTimeNode, type DateTimeNode} from './DateTimeNode';
@@ -120,15 +119,9 @@ export default function DateTimeComponent({
       setIsOpen(true);
     }
 
-    if (dateTimePillRef) {
-      dateTimePillRef.addEventListener('click', onClick);
-    }
-
-    return () => {
-      if (dateTimePillRef) {
-        dateTimePillRef.removeEventListener('click', onClick);
-      }
-    };
+    return dateTimePillRef
+      ? registerEventListener(dateTimePillRef, 'click', onClick)
+      : () => {};
   }, [refs, editor]);
 
   const withDateTimeNode = (
@@ -147,7 +140,7 @@ export default function DateTimeComponent({
   };
 
   const handleCheckboxChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    withDateTimeNode((node) => {
+    withDateTimeNode(node => {
       if (e.target.checked) {
         setIncludeTime(true);
       } else {
@@ -162,7 +155,7 @@ export default function DateTimeComponent({
   };
 
   const handleTimeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    withDateTimeNode((node) => {
+    withDateTimeNode(node => {
       const time = e.target.value;
       if (!selected) {
         setTimeValue(time);
@@ -179,14 +172,14 @@ export default function DateTimeComponent({
   };
 
   const handleDaySelect = (date: Date | undefined) => {
-    withDateTimeNode((node) => {
+    withDateTimeNode(node => {
       if (!timeValue || !date) {
         setSelected(date);
         return;
       }
       const [hours, minutes] = timeValue
         .split(':')
-        .map((str) => parseInt(str, 10));
+        .map(str => parseInt(str, 10));
       const newDate = new Date(
         date.getFullYear(),
         date.getMonth(),

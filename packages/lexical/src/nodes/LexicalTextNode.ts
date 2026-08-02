@@ -13,24 +13,11 @@ import type {
   Spread,
   TextNodeThemeClasses,
 } from '../LexicalEditor';
-import type {
-  DOMConversionMap,
-  DOMConversionOutput,
-  DOMExportOutput,
-  LexicalUpdateJSON,
-  NodeKey,
-  SerializedLexicalNode,
-} from '../LexicalNode';
-import type {
-  BaseSelection,
-  RangeSelection,
-  TextPointType,
-} from '../LexicalSelection';
 import type {ElementNode} from './LexicalElementNode';
 
-import {IS_FIREFOX} from 'shared/environment';
-import invariant from 'shared/invariant';
+import invariant from '@lexical/internal/invariant';
 
+import {IS_FIREFOX} from '../environment';
 import {
   COMPOSITION_SUFFIX,
   DETAIL_TYPE_TO_DETAIL,
@@ -50,19 +37,33 @@ import {
   TEXT_TYPE_TO_FORMAT,
   TEXT_TYPE_TO_MODE,
 } from '../LexicalConstants';
-import {LexicalNode} from '../LexicalNode';
+import {
+  type DOMConversionOutput,
+  type DOMExportOutput,
+  LexicalNode,
+  type LexicalUpdateJSON,
+  type NodeKey,
+  type SerializedLexicalNode,
+} from '../LexicalNode';
 import {$cloneNodeState} from '../LexicalNodeState';
 import {
+  $generateNodesFromRawText,
   $getSelection,
   $internalMakeRangeSelection,
   $isRangeSelection,
   $updateElementSelectionOnCreateDeleteNode,
   adjustPointOffsetForMergedSibling,
+  type BaseSelection,
+  type RangeSelection,
+  type TextPointType,
 } from '../LexicalSelection';
 import {errorOnReadOnly} from '../LexicalUpdates';
 import {
   $applyNodeReplacement,
   $getCompositionKey,
+  $getDocument,
+  $getEditor,
+  $getEditorDOMRenderConfig,
   $setCompositionKey,
   getCachedClassNameArray,
   internalMarkSiblingsAsDirty,
@@ -71,8 +72,7 @@ import {
   isInlineDomNode,
   toggleTextFormatType,
 } from '../LexicalUtils';
-import {$createLineBreakNode} from './LexicalLineBreakNode';
-import {$createTabNode} from './LexicalTabNode';
+import {setDOMStyleFromCSS} from '../utils/setDOMStyle';
 
 export type SerializedTextNode = Spread<
   {
@@ -104,7 +104,7 @@ export type TextModeType = 'normal' | 'token' | 'segmented';
 
 export type TextMark = {end: null | number; id: string; start: null | number};
 
-export type TextMarks = Array<TextMark>;
+export type TextMarks = TextMark[];
 
 function getElementOuterTag(node: TextNode, format: number): string | null {
   if (format & IS_CODE) {
@@ -220,43 +220,58 @@ function diffComposedText(a: string, b: string): [number, number, string] {
   return [left, aLength - left - right, b.slice(left, bLength - right)];
 }
 
-function setTextContent(
+function $setTextContent(
   nextText: string,
   dom: HTMLElement,
   node: TextNode,
 ): void {
-  const firstChild = dom.firstChild;
   const isComposing = node.isComposing();
   // Always add a suffix if we're composing a node
   const suffix = isComposing ? COMPOSITION_SUFFIX : '';
   const text: string = nextText + suffix;
 
-  if (firstChild == null) {
-    dom.textContent = text;
-  } else {
-    const nodeValue = firstChild.nodeValue;
-    if (nodeValue !== text) {
-      if (isComposing || IS_FIREFOX) {
-        // We also use the diff composed text for general text in FF to avoid
-        // the spellcheck red line from flickering.
-        const [index, remove, insert] = diffComposedText(
-          nodeValue as string,
-          text,
-        );
-        if (remove !== 0) {
-          // @ts-expect-error
-          firstChild.deleteData(index, remove);
-        }
-        // @ts-expect-error
-        firstChild.insertData(index, insert);
-      } else {
-        firstChild.nodeValue = text;
-      }
+  // Route through the editor-level `$getDOMSlot` hook so that
+  // `DOMRenderExtension` overrides targeting TextNode (e.g. extensions
+  // injecting `contentEditable=false` siblings around the text) can
+  // intercept. The default impl delegates to `node.getDOMSlot(dom)`.
+  //
+  // Practical contract for extensions that append non-lexical siblings to a
+  // vanilla TextNode's DOM (e.g. an autocomplete ghost rendered into the
+  // same `<span>`): append-only is safe because the default
+  // `DOMSlot.getFirstChild()` returns the first DOM child (the text node)
+  // and `insertChild` puts new content before `slot.before` (defaulting to
+  // append). Prepending a sibling, or wrapping the text node, requires
+  // either a TextNode subclass with its own `getDOMSlot` override, an
+  // extension that returns a slot with a managed `slot.before` / `slot.after`
+  // boundary, or both.
+  const editor = $getEditor();
+  const slot = $getEditorDOMRenderConfig(editor).$getDOMSlot(node, dom, editor);
+  const firstChild = slot.getFirstChild();
+
+  if (firstChild === null || firstChild.nodeType !== Node.TEXT_NODE) {
+    slot.insertChild($getDocument().createTextNode(text));
+    return;
+  }
+
+  const textChild = firstChild as Text;
+  const nodeValue = textChild.nodeValue;
+  if (nodeValue === text) {
+    return;
+  }
+  if (isComposing || IS_FIREFOX) {
+    // We also use the diff composed text for general text in FF to avoid
+    // the spellcheck red line from flickering.
+    const [index, remove, insert] = diffComposedText(nodeValue as string, text);
+    if (remove !== 0) {
+      textChild.deleteData(index, remove);
     }
+    textChild.insertData(index, insert);
+  } else {
+    textChild.nodeValue = text;
   }
 }
 
-function createTextInnerDOM(
+function $createTextInnerDOM(
   innerDOM: HTMLElement,
   node: TextNode,
   innerTag: string,
@@ -264,7 +279,7 @@ function createTextInnerDOM(
   text: string,
   config: EditorConfig,
 ): void {
-  setTextContent(text, innerDOM, node);
+  $setTextContent(text, innerDOM, node);
   const theme = config.theme;
   // Apply theme class names
   const textClassNames = theme.text;
@@ -274,11 +289,11 @@ function createTextInnerDOM(
   }
 }
 
-function wrapElementWith(
+function $wrapElementWith(
   element: HTMLElement | Text,
   tag: string,
 ): HTMLElement {
-  const el = document.createElement(tag);
+  const el = $getDocument().createElement(tag);
   el.appendChild(element);
   return el;
 }
@@ -289,9 +304,25 @@ export interface TextNode {
   getTopLevelElementOrThrow(): ElementNode;
 }
 
+export interface InlineFormattableNode {
+  /** @internal */
+  readonly __isInlineFormattable: true;
+  getFormat(): number;
+  getFormatFlags(type: TextFormatType, alignWithFormat: null | number): number;
+  hasFormat(type: TextFormatType): boolean;
+  setFormat(format: number): unknown;
+  toggleFormat(type: TextFormatType): unknown;
+}
+
+export function $isInlineFormattable(
+  node: (LexicalNode & {__isInlineFormattable?: unknown}) | null | undefined,
+): node is LexicalNode & InlineFormattableNode {
+  return node != null && node.__isInlineFormattable === true;
+}
+
 /** @noInheritDoc */
 // eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging
-export class TextNode extends LexicalNode {
+export class TextNode extends LexicalNode implements InlineFormattableNode {
   /** @internal */
   declare ['constructor']: KlassConstructor<typeof TextNode>;
   __text: string;
@@ -304,12 +335,64 @@ export class TextNode extends LexicalNode {
   /** @internal */
   __detail: number;
 
-  static getType(): string {
-    return 'text';
+  /** @internal */
+  get __isInlineFormattable(): true {
+    return true;
   }
 
-  static clone(node: TextNode): TextNode {
-    return new TextNode(node.__text, node.__key);
+  $config() {
+    return this.config('text', {
+      importDOM: {
+        '#text': () => ({
+          conversion: $convertTextDOMNode,
+          priority: 0,
+        }),
+        b: () => ({
+          conversion: convertBringAttentionToElement,
+          priority: 0,
+        }),
+        code: () => ({
+          conversion: convertTextFormatElement,
+          priority: 0,
+        }),
+        em: () => ({
+          conversion: convertTextFormatElement,
+          priority: 0,
+        }),
+        i: () => ({
+          conversion: convertTextFormatElement,
+          priority: 0,
+        }),
+        mark: () => ({
+          conversion: convertTextFormatElement,
+          priority: 0,
+        }),
+        s: () => ({
+          conversion: convertTextFormatElement,
+          priority: 0,
+        }),
+        span: () => ({
+          conversion: convertSpanElement,
+          priority: 0,
+        }),
+        strong: () => ({
+          conversion: convertTextFormatElement,
+          priority: 0,
+        }),
+        sub: () => ({
+          conversion: convertTextFormatElement,
+          priority: 0,
+        }),
+        sup: () => ({
+          conversion: convertTextFormatElement,
+          priority: 0,
+        }),
+        u: () => ({
+          conversion: convertTextFormatElement,
+          priority: 0,
+        }),
+      },
+    });
   }
 
   afterCloneFrom(prevNode: this): void {
@@ -489,20 +572,20 @@ export class TextNode extends LexicalNode {
     const outerTag = getElementOuterTag(this, format);
     const innerTag = getElementInnerTag(this, format);
     const tag = outerTag === null ? innerTag : outerTag;
-    const dom = document.createElement(tag);
+    const dom = $getDocument().createElement(tag);
     let innerDOM = dom;
     if (this.hasFormat('code')) {
       dom.setAttribute('spellcheck', 'false');
     }
     if (outerTag !== null) {
-      innerDOM = document.createElement(innerTag);
+      innerDOM = $getDocument().createElement(innerTag);
       dom.appendChild(innerDOM);
     }
     const text = this.__text;
-    createTextInnerDOM(innerDOM, this, innerTag, format, text, config);
+    $createTextInnerDOM(innerDOM, this, innerTag, format, text, config);
     const style = this.__style;
     if (style !== '') {
-      dom.style.cssText = style;
+      setDOMStyleFromCSS(dom.style, style);
     }
     return dom;
   }
@@ -527,8 +610,8 @@ export class TextNode extends LexicalNode {
       if (prevInnerDOM == null) {
         invariant(false, 'updateDOM: prevInnerDOM is null or undefined');
       }
-      const nextInnerDOM = document.createElement(nextInnerTag);
-      createTextInnerDOM(
+      const nextInnerDOM = $getDocument().createElement(nextInnerTag);
+      $createTextInnerDOM(
         nextInnerDOM,
         this,
         nextInnerTag,
@@ -548,7 +631,7 @@ export class TextNode extends LexicalNode {
         }
       }
     }
-    setTextContent(nextText, innerDOM, this);
+    $setTextContent(nextText, innerDOM, this);
     const theme = config.theme;
     // Apply theme class names
     const textClassNames = theme.text;
@@ -565,66 +648,9 @@ export class TextNode extends LexicalNode {
     const prevStyle = prevNode.__style;
     const nextStyle = this.__style;
     if (prevStyle !== nextStyle) {
-      dom.style.cssText = nextStyle;
+      setDOMStyleFromCSS(dom.style, nextStyle, prevStyle);
     }
     return false;
-  }
-
-  static importDOM(): DOMConversionMap | null {
-    return {
-      '#text': () => ({
-        conversion: $convertTextDOMNode,
-        priority: 0,
-      }),
-      b: () => ({
-        conversion: convertBringAttentionToElement,
-        priority: 0,
-      }),
-      code: () => ({
-        conversion: convertTextFormatElement,
-        priority: 0,
-      }),
-      em: () => ({
-        conversion: convertTextFormatElement,
-        priority: 0,
-      }),
-      i: () => ({
-        conversion: convertTextFormatElement,
-        priority: 0,
-      }),
-      mark: () => ({
-        conversion: convertTextFormatElement,
-        priority: 0,
-      }),
-      s: () => ({
-        conversion: convertTextFormatElement,
-        priority: 0,
-      }),
-      span: () => ({
-        conversion: convertSpanElement,
-        priority: 0,
-      }),
-      strong: () => ({
-        conversion: convertTextFormatElement,
-        priority: 0,
-      }),
-      sub: () => ({
-        conversion: convertTextFormatElement,
-        priority: 0,
-      }),
-      sup: () => ({
-        conversion: convertTextFormatElement,
-        priority: 0,
-      }),
-      u: () => ({
-        conversion: convertTextFormatElement,
-        priority: 0,
-      }),
-    };
-  }
-
-  static importJSON(serializedNode: SerializedTextNode): TextNode {
-    return $createTextNode().updateFromJSON(serializedNode);
   }
 
   updateFromJSON(serializedNode: LexicalUpdateJSON<SerializedTextNode>): this {
@@ -661,16 +687,16 @@ export class TextNode extends LexicalNode {
     // even if it's semantically incorrect to have to resort to using
     // <b>, <u>, <s>, <i> elements.
     if (this.hasFormat('bold')) {
-      element = wrapElementWith(element, 'b');
+      element = $wrapElementWith(element, 'b');
     }
     if (this.hasFormat('italic')) {
-      element = wrapElementWith(element, 'i');
+      element = $wrapElementWith(element, 'i');
     }
     if (this.hasFormat('strikethrough')) {
-      element = wrapElementWith(element, 's');
+      element = $wrapElementWith(element, 's');
     }
     if (this.hasFormat('underline')) {
-      element = wrapElementWith(element, 'u');
+      element = $wrapElementWith(element, 'u');
     }
 
     return {
@@ -788,6 +814,12 @@ export class TextNode extends LexicalNode {
 
   /**
    * Sets the mode of the node.
+   *
+   * Note: during IME composition, a segmented TextNode may be temporarily
+   * switched to normal mode to preserve the DOM element that the browser's
+   * composition tracker is bound to. Subclass transforms or method overrides
+   * that assume the node is always in segmented mode should account for this
+   * transient state.
    *
    * @returns this TextNode.
    */
@@ -950,7 +982,7 @@ export class TextNode extends LexicalNode {
    *
    * @returns an Array containing the newly-created TextNodes.
    */
-  splitText(...splitOffsets: Array<number>): Array<TextNode> {
+  splitText(...splitOffsets: number[]): TextNode[] {
     errorOnReadOnly();
     const self = this.getLatest();
     const textContent = self.getTextContent();
@@ -1244,20 +1276,7 @@ function $convertTextDOMNode(domNode: Node): DOMConversionOutput {
   let textContent = domNode_.textContent || '';
   // No collapse and preserve segment break for pre, pre-wrap and pre-line
   if (findParentPreDOMNode(domNode_) !== null) {
-    const parts = textContent.split(/(\r?\n|\t)/);
-    const nodes: Array<LexicalNode> = [];
-    const length = parts.length;
-    for (let i = 0; i < length; i++) {
-      const part = parts[i];
-      if (part === '\n' || part === '\r\n') {
-        nodes.push($createLineBreakNode());
-      } else if (part === '\t') {
-        nodes.push($createTabNode());
-      } else if (part !== '') {
-        nodes.push($createTextNode(part));
-      }
-    }
-    return {node: nodes};
+    return {node: $generateNodesFromRawText(textContent)};
   }
   textContent = textContent.replace(/\r/g, '').replace(/[ \t\n]+/g, ' ');
   if (textContent === '') {
@@ -1315,7 +1334,7 @@ function $convertTextDOMNode(domNode: Node): DOMConversionOutput {
 
 function findTextInLine(text: Text, forward: boolean): null | Text {
   let node: Node = text;
-  // eslint-disable-next-line no-constant-condition
+
   while (true) {
     let sibling: null | Node;
     while (
@@ -1400,7 +1419,7 @@ function applyTextFormatFromStyle(
   const verticalAlign = style.verticalAlign;
 
   return (lexicalNode: LexicalNode) => {
-    if (!$isTextNode(lexicalNode)) {
+    if (!$isTextNode(lexicalNode) && !$isInlineFormattable(lexicalNode)) {
       return lexicalNode;
     }
     if (hasBoldFontWeight && !lexicalNode.hasFormat('bold')) {

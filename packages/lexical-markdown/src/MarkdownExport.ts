@@ -6,22 +6,30 @@
  *
  */
 
-import type {ElementNode, LexicalNode, TextFormatType, TextNode} from 'lexical';
-
+import {$sliceSelectedTextNodeContent} from '@lexical/selection';
 import {
   $getRoot,
+  $getState,
   $isDecoratorNode,
   $isElementNode,
   $isLineBreakNode,
   $isTextNode,
+  type BaseSelection,
+  type ElementNode,
+  type LexicalNode,
+  type LineBreakNode,
+  type TextFormatType,
+  type TextNode,
 } from 'lexical';
 
 import {
-  ElementTransformer,
-  MultilineElementTransformer,
-  TextFormatTransformer,
-  TextMatchTransformer,
-  Transformer,
+  type ElementTransformer,
+  getCodeSpanDelimiter,
+  hardLineBreakState,
+  type MultilineElementTransformer,
+  type TextFormatTransformer,
+  type TextMatchTransformer,
+  type Transformer,
 } from './MarkdownTransformers';
 import {isEmptyParagraph, transformersByType} from './utils';
 
@@ -29,7 +37,7 @@ import {isEmptyParagraph, transformersByType} from './utils';
  * Renders string from markdown. The selection is moved to the start after the operation.
  */
 export function createMarkdownExport(
-  transformers: Array<Transformer>,
+  transformers: Transformer[],
   shouldPreserveNewLines: boolean = false,
 ): (node?: ElementNode) => string {
   const byType = transformersByType(transformers);
@@ -39,7 +47,7 @@ export function createMarkdownExport(
   // Export only uses text formats that are responsible for single format
   // e.g. it will filter out *** (bold, italic) and instead use separate ** and *
   const textFormatTransformers = byType.textFormat
-    .filter((transformer) => transformer.format.length === 1)
+    .filter(transformer => transformer.format.length === 1)
     // Make sure all text transformers that contain 'code' in their format are at the end of the array. Otherwise, formatted code like
     // <strong><code>code</code></strong> will be exported as `**Bold Code**`, as the code format will be applied first, and the bold format
     // will be applied second and thus skipped entirely, as the code format will prevent any further formatting.
@@ -49,17 +57,18 @@ export function createMarkdownExport(
       );
     });
 
-  return (node) => {
+  return node => {
     const output = [];
     const children = (node || $getRoot()).getChildren();
 
     for (let i = 0; i < children.length; i++) {
       const child = children[i];
-      const result = exportTopLevelElements(
+      const result = $exportTopLevelElements(
         child,
         elementTransformers,
         textFormatTransformers,
         byType.textMatch,
+        shouldPreserveNewLines,
       );
 
       if (result != null) {
@@ -80,18 +89,276 @@ export function createMarkdownExport(
   };
 }
 
-function exportTopLevelElements(
+/**
+ * Creates a markdown export function that only exports selected content.
+ * Uses a recursive structure similar to $appendNodesToHTML to support
+ * extractWithChild for proper handling of partial selections within
+ * inline elements like links.
+ */
+export function createSelectionMarkdownExport(
+  transformers: Transformer[],
+  shouldPreserveNewLines: boolean = false,
+): (selection: BaseSelection) => string {
+  const byType = transformersByType(transformers);
+  const elementTransformers = [...byType.multilineElement, ...byType.element];
+  const isNewlineDelimited = !shouldPreserveNewLines;
+
+  const textFormatTransformers = byType.textFormat
+    .filter(transformer => transformer.format.length === 1)
+    .sort((a, b) => {
+      return (
+        Number(a.format.includes('code')) - Number(b.format.includes('code'))
+      );
+    });
+
+  return selection => {
+    const output = [];
+    const children = $getRoot().getChildren();
+
+    for (let i = 0; i < children.length; i++) {
+      const child = children[i];
+      const {shouldInclude, markdown} = $processNodeForSelection(
+        child,
+        selection,
+        elementTransformers,
+        textFormatTransformers,
+        byType.textMatch,
+        shouldPreserveNewLines,
+      );
+
+      if (shouldInclude && markdown != null) {
+        output.push(
+          isNewlineDelimited &&
+            i > 0 &&
+            !isEmptyParagraph(child) &&
+            !isEmptyParagraph(children[i - 1])
+            ? '\n'.concat(markdown)
+            : markdown,
+        );
+      }
+    }
+    return output.join('\n');
+  };
+}
+
+function $processNodeForSelection(
   node: LexicalNode,
-  elementTransformers: Array<ElementTransformer | MultilineElementTransformer>,
-  textTransformersIndex: Array<TextFormatTransformer>,
-  textMatchTransformers: Array<TextMatchTransformer>,
+  selection: BaseSelection,
+  elementTransformers: (ElementTransformer | MultilineElementTransformer)[],
+  textFormatTransformers: TextFormatTransformer[],
+  textMatchTransformers: TextMatchTransformer[],
+  shouldPreserveNewLines: boolean,
+): {shouldInclude: boolean; markdown: string | null} {
+  let shouldInclude = node.isSelected(selection);
+
+  // For element transformers (heading, quote, list, code block, etc.)
+  for (const transformer of elementTransformers) {
+    if (!transformer.export) {
+      continue;
+    }
+    const result = transformer.export(
+      node,
+      node_ =>
+        $exportChildrenForSelection(
+          node_,
+          selection,
+          textFormatTransformers,
+          textMatchTransformers,
+          shouldPreserveNewLines,
+        ).markdown,
+      selection,
+    );
+
+    if (result != null) {
+      if (!shouldInclude) {
+        // Check if any descendant is selected
+        if ($isElementNode(node)) {
+          const childResult = $exportChildrenForSelection(
+            node,
+            selection,
+            textFormatTransformers,
+            textMatchTransformers,
+            shouldPreserveNewLines,
+          );
+          if (childResult.shouldInclude) {
+            shouldInclude = true;
+          }
+        }
+      }
+      return {markdown: result, shouldInclude};
+    }
+  }
+
+  if ($isElementNode(node)) {
+    const childResult = $exportChildrenForSelection(
+      node,
+      selection,
+      textFormatTransformers,
+      textMatchTransformers,
+      shouldPreserveNewLines,
+    );
+    return {
+      markdown: childResult.markdown,
+      shouldInclude: shouldInclude || childResult.shouldInclude,
+    };
+  } else if ($isDecoratorNode(node)) {
+    return {markdown: node.getTextContent(), shouldInclude};
+  } else {
+    return {markdown: null, shouldInclude};
+  }
+}
+
+function $exportChildrenForSelection(
+  node: ElementNode,
+  selection: BaseSelection,
+  textFormatTransformers: TextFormatTransformer[],
+  textMatchTransformers: TextMatchTransformer[],
+  shouldPreserveNewLines: boolean,
+  unclosedTags?: {format: TextFormatType; tag: string}[],
+  unclosableTags?: {format: TextFormatType; tag: string}[],
+): {shouldInclude: boolean; markdown: string} {
+  const output = [];
+  const children = node.getChildren();
+  let anyChildIncluded = false;
+
+  if (!unclosedTags) {
+    unclosedTags = [];
+  }
+  if (!unclosableTags) {
+    unclosableTags = [];
+  }
+
+  mainLoop: for (const child of children) {
+    let childIncluded = child.isSelected(selection);
+
+    // Try text match transformers (links, etc.)
+    for (const transformer of textMatchTransformers) {
+      if (!transformer.export) {
+        continue;
+      }
+
+      const result = transformer.export(
+        child,
+        parentNode =>
+          $exportChildrenForSelection(
+            parentNode,
+            selection,
+            textFormatTransformers,
+            textMatchTransformers,
+            shouldPreserveNewLines,
+            unclosedTags,
+            [...unclosableTags, ...unclosedTags],
+          ).markdown,
+        (textNode, textContent) => {
+          const slicedNode = $sliceSelectedTextNodeContent(
+            selection,
+            textNode,
+            'clone',
+          );
+          return exportTextFormat(
+            textNode,
+            slicedNode.getTextContent(),
+            textFormatTransformers,
+            unclosedTags,
+            unclosableTags,
+            shouldPreserveNewLines,
+          );
+        },
+      );
+
+      if (result != null) {
+        // Check extractWithChild if this node wasn't directly selected
+        if (
+          !childIncluded &&
+          $isElementNode(child) &&
+          child.getChildren().some(c => c.isSelected(selection)) &&
+          child.extractWithChild(child, selection, 'html')
+        ) {
+          childIncluded = true;
+        }
+        if (childIncluded) {
+          output.push(result);
+          anyChildIncluded = true;
+        }
+        continue mainLoop;
+      }
+    }
+
+    if ($isLineBreakNode(child)) {
+      if (childIncluded) {
+        output.push($exportLineBreak(child));
+        anyChildIncluded = true;
+      }
+    } else if ($isTextNode(child)) {
+      if (childIncluded) {
+        const target = $sliceSelectedTextNodeContent(selection, child, 'clone');
+        output.push(
+          exportTextFormat(
+            child,
+            target.getTextContent(),
+            textFormatTransformers,
+            unclosedTags,
+            unclosableTags,
+            shouldPreserveNewLines,
+          ),
+        );
+        anyChildIncluded = true;
+      }
+    } else if ($isElementNode(child)) {
+      const childResult = $exportChildrenForSelection(
+        child,
+        selection,
+        textFormatTransformers,
+        textMatchTransformers,
+        shouldPreserveNewLines,
+        unclosedTags,
+        unclosableTags,
+      );
+
+      // extractWithChild: if child has selected descendants, ask parent if it should be included
+      if (
+        !childIncluded &&
+        childResult.shouldInclude &&
+        child.extractWithChild(child, selection, 'html')
+      ) {
+        childIncluded = true;
+      }
+
+      if (childIncluded || childResult.shouldInclude) {
+        output.push(childResult.markdown);
+        anyChildIncluded = true;
+      }
+    } else if ($isDecoratorNode(child)) {
+      if (childIncluded) {
+        output.push(child.getTextContent());
+        anyChildIncluded = true;
+      }
+    }
+  }
+
+  return {markdown: output.join(''), shouldInclude: anyChildIncluded};
+}
+
+function $exportTopLevelElements(
+  node: LexicalNode,
+  elementTransformers: (ElementTransformer | MultilineElementTransformer)[],
+  textTransformersIndex: TextFormatTransformer[],
+  textMatchTransformers: TextMatchTransformer[],
+  shouldPreserveNewLines: boolean,
 ): string | null {
   for (const transformer of elementTransformers) {
     if (!transformer.export) {
       continue;
     }
-    const result = transformer.export(node, (_node) =>
-      exportChildren(_node, textTransformersIndex, textMatchTransformers),
+    const result = transformer.export(node, _node =>
+      $exportChildren(
+        _node,
+        textTransformersIndex,
+        textMatchTransformers,
+        undefined,
+        undefined,
+        shouldPreserveNewLines,
+      ),
     );
 
     if (result != null) {
@@ -100,7 +367,14 @@ function exportTopLevelElements(
   }
 
   if ($isElementNode(node)) {
-    return exportChildren(node, textTransformersIndex, textMatchTransformers);
+    return $exportChildren(
+      node,
+      textTransformersIndex,
+      textMatchTransformers,
+      undefined,
+      undefined,
+      shouldPreserveNewLines,
+    );
   } else if ($isDecoratorNode(node)) {
     return node.getTextContent();
   } else {
@@ -108,12 +382,13 @@ function exportTopLevelElements(
   }
 }
 
-function exportChildren(
+function $exportChildren(
   node: ElementNode,
-  textTransformersIndex: Array<TextFormatTransformer>,
-  textMatchTransformers: Array<TextMatchTransformer>,
-  unclosedTags?: Array<{format: TextFormatType; tag: string}>,
-  unclosableTags?: Array<{format: TextFormatType; tag: string}>,
+  textTransformersIndex: TextFormatTransformer[],
+  textMatchTransformers: TextMatchTransformer[],
+  unclosedTags?: {format: TextFormatType; tag: string}[],
+  unclosableTags?: {format: TextFormatType; tag: string}[],
+  shouldPreserveNewLines: boolean = false,
 ): string {
   const output = [];
   const children = node.getChildren();
@@ -133,8 +408,8 @@ function exportChildren(
 
       const result = transformer.export(
         child,
-        (parentNode) =>
-          exportChildren(
+        parentNode =>
+          $exportChildren(
             parentNode,
             textTransformersIndex,
             textMatchTransformers,
@@ -145,6 +420,7 @@ function exportChildren(
             // is invalid markdown, as the closing ** is inside the link.
             //
             [...unclosableTags, ...unclosedTags],
+            shouldPreserveNewLines,
           ),
         (textNode, textContent) =>
           exportTextFormat(
@@ -153,6 +429,7 @@ function exportChildren(
             textTransformersIndex,
             unclosedTags,
             unclosableTags,
+            shouldPreserveNewLines,
           ),
       );
 
@@ -163,7 +440,7 @@ function exportChildren(
     }
 
     if ($isLineBreakNode(child)) {
-      output.push('\n');
+      output.push($exportLineBreak(child));
     } else if ($isTextNode(child)) {
       output.push(
         exportTextFormat(
@@ -172,17 +449,19 @@ function exportChildren(
           textTransformersIndex,
           unclosedTags,
           unclosableTags,
+          shouldPreserveNewLines,
         ),
       );
     } else if ($isElementNode(child)) {
       // empty paragraph returns ""
       output.push(
-        exportChildren(
+        $exportChildren(
           child,
           textTransformersIndex,
           textMatchTransformers,
           unclosedTags,
           unclosableTags,
+          shouldPreserveNewLines,
         ),
       );
     } else if ($isDecoratorNode(child)) {
@@ -193,13 +472,18 @@ function exportChildren(
   return output.join('');
 }
 
+function $exportLineBreak(node: LineBreakNode): string {
+  return $getState(node, hardLineBreakState) + '\n';
+}
+
 function exportTextFormat(
   node: TextNode,
   textContent: string,
-  textTransformers: Array<TextFormatTransformer>,
+  textTransformers: TextFormatTransformer[],
   // unclosed tags include the markdown tags that haven't been closed yet, and their associated formats
-  unclosedTags: Array<{format: TextFormatType; tag: string}>,
-  unclosableTags?: Array<{format: TextFormatType; tag: string}>,
+  unclosedTags: {format: TextFormatType; tag: string}[],
+  unclosableTags?: {format: TextFormatType; tag: string}[],
+  shouldPreserveNewLines: boolean = false,
 ): string {
   // This function handles the case of a string looking like this: "   foo   "
   // Where it would be invalid markdown to generate: "**   foo   **"
@@ -207,19 +491,38 @@ function exportTextFormat(
   // Otherwise, we escape leading and trailing whitespaces to their corresponding code points,
   // ensuring the returned string maintains its original formatting, e.g., "**&#32;&#32;&#32;foo&#32;&#32;&#32;**".
 
+  const isCode = node.hasFormat('code');
+
   let output = textContent;
-  if (!node.hasFormat('code')) {
-    // Escape any markdown characters in the text content
-    output = output.replace(/([*_`~\\])/g, '\\$1');
+  if (!isCode) {
+    // Preserve literal backslashes when preserving source newlines.
+    output = shouldPreserveNewLines
+      ? output.replace(/([*_`~])/g, '\\$1')
+      : output.replace(/([*_`~\\])/g, '\\$1');
   }
 
-  // Extract leading and trailing whitespaces.
-  // CommonMark flanking rules require formatting tags to be adjacent to non-whitespace characters.
-  const match = output.match(/^(\s*)(.*?)(\s*)$/s) || ['', '', output, ''];
-  const leadingSpace = match[1];
-  const trimmedOutput = match[2];
-  const trailingSpace = match[3];
-  const isWhitespaceOnly = trimmedOutput === '';
+  let leadingSpace: string;
+  let trimmedOutput: string;
+  let trailingSpace: string;
+  let isWhitespaceOnly: boolean;
+
+  if (isCode) {
+    // Inline code is an atomic literal span with a content-derived fence, so
+    // its whitespace stays inside the fence and other formats wrap around it.
+    const {fence, padded} = getCodeSpanDelimiter(textContent);
+    leadingSpace = '';
+    trailingSpace = '';
+    trimmedOutput = fence + padded + fence;
+    isWhitespaceOnly = false;
+  } else {
+    // Extract leading and trailing whitespaces.
+    // CommonMark flanking rules require formatting tags to be adjacent to non-whitespace characters.
+    const match = output.match(/^(\s*)(.*?)(\s*)$/s) || ['', '', output, ''];
+    leadingSpace = match[1];
+    trimmedOutput = match[2];
+    trailingSpace = match[3];
+    isWhitespaceOnly = trimmedOutput === '';
+  }
 
   // the opening tags to be added to the result
   let openingTags = '';
@@ -236,6 +539,11 @@ function exportTextFormat(
     const format = transformer.format[0];
     const tag = transformer.tag;
 
+    // Inline code uses a content-derived fence handled above, not a static tag.
+    if (format === 'code') {
+      continue;
+    }
+
     // dedup applied formats
     if (checkHasFormat(node, format) && !applied.has(format)) {
       applied.add(format);
@@ -244,7 +552,7 @@ function exportTextFormat(
       // or the nodes before that (which would result in an unclosed tag)
       if (
         !checkHasFormat(prevNode, format) ||
-        !unclosedTags.find((element) => element.tag === tag)
+        !unclosedTags.find(element => element.tag === tag)
       ) {
         unclosedTags.push({format, tag});
         openingTags += tag;
@@ -272,7 +580,7 @@ function exportTextFormat(
       if (
         unclosableTags &&
         unclosedTag &&
-        unclosableTags.find((element) => element.tag === unclosedTag.tag)
+        unclosableTags.find(element => element.tag === unclosedTag.tag)
       ) {
         continue;
       }

@@ -6,20 +6,17 @@
  *
  */
 
-import type {
-  DOMConversionMap,
-  DOMConversionOutput,
-  DOMExportOutput,
-  EditorConfig,
-  LexicalNode,
-  LexicalUpdateJSON,
-  NodeKey,
-  SerializedElementNode,
-  Spread,
+import {
+  addClassNamesToElement,
+  type DOMExportOutput,
+  type EditorConfig,
+  ElementNode,
+  type LexicalNode,
+  type LexicalUpdateJSON,
+  type NodeKey,
+  type SerializedElementNode,
+  type Spread,
 } from 'lexical';
-
-import {addClassNamesToElement} from '@lexical/utils';
-import {ElementNode} from 'lexical';
 
 export type SerializedLayoutContainerNode = Spread<
   {
@@ -27,17 +24,6 @@ export type SerializedLayoutContainerNode = Spread<
   },
   SerializedElementNode
 >;
-
-function $convertLayoutContainerElement(
-  domNode: HTMLElement,
-): DOMConversionOutput | null {
-  const templateColumns = domNode.style.gridTemplateColumns;
-  if (templateColumns) {
-    const node = $createLayoutContainerNode(templateColumns);
-    return {node};
-  }
-  return null;
-}
 
 export class LayoutContainerNode extends ElementNode {
   __templateColumns: string;
@@ -47,8 +33,8 @@ export class LayoutContainerNode extends ElementNode {
     this.__templateColumns = templateColumns;
   }
 
-  static getType(): string {
-    return 'layout-container';
+  $config() {
+    return this.config('layout-container', {extends: ElementNode});
   }
 
   static clone(node: LayoutContainerNode): LayoutContainerNode {
@@ -76,20 +62,6 @@ export class LayoutContainerNode extends ElementNode {
       dom.style.gridTemplateColumns = this.__templateColumns;
     }
     return false;
-  }
-
-  static importDOM(): DOMConversionMap | null {
-    return {
-      div: (domNode: HTMLElement) => {
-        if (!domNode.hasAttribute('data-lexical-layout-container')) {
-          return null;
-        }
-        return {
-          conversion: $convertLayoutContainerElement,
-          priority: 2,
-        };
-      },
-    };
   }
 
   static importJSON(json: SerializedLayoutContainerNode): LayoutContainerNode {

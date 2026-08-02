@@ -6,20 +6,18 @@
  *
  */
 
-import type {
-  DOMConversionMap,
-  DOMConversionOutput,
-  DOMExportOutput,
-  EditorConfig,
-  LexicalEditor,
-  LexicalNode,
-  NodeKey,
-  SerializedLexicalNode,
-  Spread,
-} from 'lexical';
 import type {JSX} from 'react';
 
-import {DecoratorNode} from 'lexical';
+import {
+  DecoratorNode,
+  type DOMExportOutput,
+  type EditorConfig,
+  type LexicalEditor,
+  type LexicalNode,
+  type NodeKey,
+  type SerializedLexicalNode,
+  type Spread,
+} from 'lexical';
 import * as React from 'react';
 
 type Dimension = number | 'inherit';
@@ -35,43 +33,13 @@ export type SerializedExcalidrawNode = Spread<
   SerializedLexicalNode
 >;
 
-function $convertExcalidrawElement(
-  domNode: HTMLElement,
-): DOMConversionOutput | null {
-  const excalidrawData = domNode.getAttribute('data-lexical-excalidraw-json');
-  const styleAttributes = window.getComputedStyle(domNode);
-  const heightStr = styleAttributes.getPropertyValue('height');
-  const widthStr = styleAttributes.getPropertyValue('width');
-  const height =
-    !heightStr || heightStr === 'inherit' ? 'inherit' : parseInt(heightStr, 10);
-  const width =
-    !widthStr || widthStr === 'inherit' ? 'inherit' : parseInt(widthStr, 10);
-
-  if (excalidrawData) {
-    const node = $createExcalidrawNode(excalidrawData, width, height);
-    return {
-      node,
-    };
-  }
-  return null;
-}
-
 export class ExcalidrawNode extends DecoratorNode<JSX.Element> {
   __data: string;
   __width: Dimension;
   __height: Dimension;
 
-  static getType(): string {
-    return 'excalidraw';
-  }
-
-  static clone(node: ExcalidrawNode): ExcalidrawNode {
-    return new ExcalidrawNode(
-      node.__data,
-      node.__width,
-      node.__height,
-      node.__key,
-    );
+  $config() {
+    return this.config('excalidraw', {extends: DecoratorNode});
   }
 
   static importJSON(serializedNode: SerializedExcalidrawNode): ExcalidrawNode {
@@ -116,20 +84,6 @@ export class ExcalidrawNode extends DecoratorNode<JSX.Element> {
 
   updateDOM(): false {
     return false;
-  }
-
-  static importDOM(): DOMConversionMap<HTMLSpanElement> | null {
-    return {
-      span: (domNode: HTMLSpanElement) => {
-        if (!domNode.hasAttribute('data-lexical-excalidraw-json')) {
-          return null;
-        }
-        return {
-          conversion: $convertExcalidrawElement,
-          priority: 1,
-        };
-      },
-    };
   }
 
   exportDOM(editor: LexicalEditor): DOMExportOutput {

@@ -7,24 +7,23 @@
  */
 
 import type {LexicalEditor} from 'lexical';
-import type {JSX} from 'react';
 
 import {
   AutoEmbedOption,
-  EmbedConfig,
-  EmbedMatchResult,
+  type EmbedConfig,
+  type EmbedMatchResult,
   LexicalAutoEmbedPlugin,
   URL_MATCHER,
 } from '@lexical/react/LexicalAutoEmbedPlugin';
 import {useLexicalComposerContext} from '@lexical/react/LexicalComposerContext';
-import {useMemo, useState} from 'react';
+import {type JSX, useMemo, useState} from 'react';
 
 import useModal from '../../hooks/useModal';
 import Button from '../../ui/Button';
 import {DialogActions} from '../../ui/Dialog';
-import {INSERT_FIGMA_COMMAND} from '../FigmaPlugin';
-import {INSERT_TWEET_COMMAND} from '../TwitterPlugin';
-import {INSERT_YOUTUBE_COMMAND} from '../YouTubePlugin';
+import {INSERT_FIGMA_COMMAND} from '../FigmaExtension';
+import {INSERT_TWEET_COMMAND} from '../TwitterExtension';
+import {INSERT_YOUTUBE_COMMAND} from '../YouTubeExtension';
 
 interface PlaygroundEmbedConfig extends EmbedConfig {
   // Human readable name of the embedded content e.g. Tweet or Google Map.
@@ -37,7 +36,7 @@ interface PlaygroundEmbedConfig extends EmbedConfig {
   exampleUrl: string;
 
   // For extra searching.
-  keywords: Array<string>;
+  keywords: string[];
 
   // Embed a Figma Project.
   description?: string;
@@ -179,11 +178,9 @@ export function AutoEmbedDialog({
       debounce((inputText: string) => {
         const urlMatch = URL_MATCHER.exec(inputText);
         if (embedConfig != null && inputText != null && urlMatch != null) {
-          Promise.resolve(embedConfig.parseUrl(inputText)).then(
-            (parseResult) => {
-              setEmbedResult(parseResult);
-            },
-          );
+          Promise.resolve(embedConfig.parseUrl(inputText)).then(parseResult => {
+            setEmbedResult(parseResult);
+          });
         } else if (embedResult != null) {
           setEmbedResult(null);
         }
@@ -206,8 +203,9 @@ export function AutoEmbedDialog({
           className="Input__input"
           placeholder={embedConfig.exampleUrl}
           value={text}
+          autoFocus={true}
           data-test-id={`${embedConfig.type}-embed-modal-url`}
-          onChange={(e) => {
+          onChange={e => {
             const {value} = e.target;
             setText(value);
             validateText(value);
@@ -230,7 +228,7 @@ export default function AutoEmbedPlugin(): JSX.Element {
   const [modal, showModal] = useModal();
 
   const openEmbedModal = (embedConfig: PlaygroundEmbedConfig) => {
-    showModal(`Embed ${embedConfig.contentName}`, (onClose) => (
+    showModal(`Embed ${embedConfig.contentName}`, onClose => (
       <AutoEmbedDialog embedConfig={embedConfig} onClose={onClose} />
     ));
   };

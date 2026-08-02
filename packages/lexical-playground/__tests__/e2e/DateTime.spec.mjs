@@ -43,13 +43,13 @@ test.describe('DateTime', () => {
             data-lexical-decorator="true">
             <div class="dateTimePill">*</div>
           </span>
-          <br />
+          <br data-lexical-managed-linebreak="true" />
         </p>
       `,
       undefined,
       {ignoreClasses: true, ignoreInlineStyles: true},
       // Custom modification: replace the date text and data-lexical-datetime value with wildcards for matching
-      (actualHtml) =>
+      actualHtml =>
         actualHtml
           .replace(/(<div[^>]*>)(.*?)(<\/div>)/, '$1*$3')
           .replace(
@@ -101,7 +101,7 @@ test.describe('DateTime', () => {
       undefined,
       {ignoreClasses: true, ignoreInlineStyles: true},
       // Custom modification: replace the date text and data-lexical-datetime value with wildcards for matching
-      (actualHtml) =>
+      actualHtml =>
         actualHtml
           .replace(/(<div[^>]*>)(.*?)(<\/div>)/, '$1*$3')
           .replace(
@@ -133,13 +133,13 @@ test.describe('DateTime', () => {
             data-lexical-decorator="true">
             <div class="dateTimePill bold">*</div>
           </span>
-          <br />
+          <br data-lexical-managed-linebreak="true" />
         </p>
       `,
       undefined,
       {ignoreClasses: true, ignoreInlineStyles: true},
       // Custom modification: replace the date text and data-lexical-datetime value with wildcards for matching
-      (actualHtml) =>
+      actualHtml =>
         actualHtml
           .replace(/(<div[^>]*>)(.*?)(<\/div>)/, '$1*$3')
           .replace(

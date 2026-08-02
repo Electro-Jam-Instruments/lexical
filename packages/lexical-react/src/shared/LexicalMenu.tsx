@@ -6,28 +6,33 @@
  *
  */
 
-import type {JSX} from 'react';
-
 import {useLexicalComposerContext} from '@lexical/react/LexicalComposerContext';
-import {mergeRegister} from '@lexical/utils';
+import {getScrollParent} from '@lexical/utils';
 import {
   $getSelection,
   $isRangeSelection,
+  CAN_USE_DOM,
   COMMAND_PRIORITY_LOW,
-  CommandListenerPriority,
+  type CommandListenerPriority,
   createCommand,
+  getDOMShadowRoots,
+  getRootOwnerDocument,
+  isDOMShadowRoot,
   KEY_ARROW_DOWN_COMMAND,
   KEY_ARROW_UP_COMMAND,
   KEY_ENTER_COMMAND,
   KEY_ESCAPE_COMMAND,
   KEY_TAB_COMMAND,
-  LexicalCommand,
-  LexicalEditor,
-  TextNode,
+  type LexicalCommand,
+  type LexicalEditor,
+  mergeRegister,
+  registerEventListener,
+  type TextNode,
 } from 'lexical';
 import {
-  ReactPortal,
-  RefObject,
+  type JSX,
+  type ReactPortal,
+  type RefObject,
   useCallback,
   useEffect,
   useMemo,
@@ -35,20 +40,37 @@ import {
   useState,
 } from 'react';
 import ReactDOM from 'react-dom';
-import {CAN_USE_DOM} from 'shared/canUseDOM';
-import useLayoutEffect from 'shared/useLayoutEffect';
 
+import useLayoutEffect from './useLayoutEffect';
+
+/**
+ * Describes where a typeahead trigger matched the text before the cursor: the
+ * `leadOffset` where the match starts, the captured `matchingString` (the query
+ * after the trigger), and the `replaceableString` (the full matched text,
+ * including the trigger, that should be replaced when an option is selected).
+ */
 export type MenuTextMatch = {
   leadOffset: number;
   matchingString: string;
   replaceableString: string;
 };
 
+/**
+ * The position and match information for an open menu: a `getRect` function that
+ * returns the anchor rectangle the menu is positioned against, and the optional
+ * {@link MenuTextMatch} that opened it.
+ */
 export type MenuResolution = {
   match?: MenuTextMatch;
   getRect: () => DOMRect;
 };
 
+/**
+ * The base class for an item shown in a {@link LexicalTypeaheadMenuPlugin} or
+ * {@link LexicalNodeMenuPlugin} menu. Each option has a unique `key` and a `ref`
+ * to its rendered element (used for scrolling and keyboard navigation).
+ * Subclass it to attach your own data such as a label or callback.
+ */
 export class MenuOption {
   key: string;
   ref?: RefObject<HTMLElement | null>;
@@ -66,25 +88,35 @@ export class MenuOption {
   }
 }
 
+/**
+ * A render function for a menu's contents. It receives the anchor element ref,
+ * the current item props (selected index, options, and helpers to select or
+ * highlight an option), and the matching query string, and returns the menu
+ * element (or portal) to render, or `null` to render nothing. Provide one to
+ * fully customize a menu's appearance.
+ */
 export type MenuRenderFn<TOption extends MenuOption> = (
   anchorElementRef: RefObject<HTMLElement | null>,
   itemProps: {
     selectedIndex: number | null;
     selectOptionAndCleanUp: (option: TOption) => void;
     setHighlightedIndex: (index: number) => void;
-    options: Array<TOption>;
+    options: TOption[];
   },
   matchingString: string,
 ) => ReactPortal | JSX.Element | null;
 
 const scrollIntoViewIfNeeded = (target: HTMLElement) => {
-  const typeaheadContainerNode = document.getElementById('typeahead-menu');
+  const typeaheadContainerNode = target.closest(
+    '#typeahead-menu',
+  ) as HTMLElement | null;
   if (!typeaheadContainerNode) {
     return;
   }
 
   const typeaheadRect = typeaheadContainerNode.getBoundingClientRect();
 
+  // eslint-disable-next-line no-restricted-syntax
   if (typeaheadRect.top + typeaheadRect.height > window.innerHeight) {
     typeaheadContainerNode.scrollIntoView({
       block: 'center',
@@ -159,37 +191,6 @@ function $splitNodeContainingQuery(match: MenuTextMatch): TextNode | null {
   return newNode;
 }
 
-// Got from https://stackoverflow.com/a/42543908/2013580
-export function getScrollParent(
-  element: HTMLElement,
-  includeHidden: boolean,
-): HTMLElement | HTMLBodyElement {
-  let style = getComputedStyle(element);
-  const excludeStaticParent = style.position === 'absolute';
-  const overflowRegex = includeHidden
-    ? /(auto|scroll|hidden)/
-    : /(auto|scroll)/;
-  if (style.position === 'fixed') {
-    return document.body;
-  }
-  for (
-    let parent: HTMLElement | null = element;
-    (parent = parent.parentElement);
-
-  ) {
-    style = getComputedStyle(parent);
-    if (excludeStaticParent && style.position === 'static') {
-      continue;
-    }
-    if (
-      overflowRegex.test(style.overflow + style.overflowY + style.overflowX)
-    ) {
-      return parent;
-    }
-  }
-  return document.body;
-}
-
 function isTriggerVisibleInNearestScrollContainer(
   targetElement: HTMLElement,
   containerElement: HTMLElement,
@@ -204,6 +205,12 @@ function isTriggerVisibleInNearestScrollContainer(
   );
 }
 
+/**
+ * Keeps an open menu aligned with its trigger by calling `onReposition` on
+ * scroll, window resize, and target element resize while `resolution` is set.
+ * Optionally calls `onVisibilityChange` when the trigger enters or leaves its
+ * nearest scroll container's viewport.
+ */
 // Reposition the menu on scroll, window resize, and element resize.
 export function useDynamicPositioning(
   resolution: MenuResolution | null,
@@ -218,7 +225,8 @@ export function useDynamicPositioning(
       const rootScrollParent =
         rootElement != null
           ? getScrollParent(rootElement, false)
-          : document.body;
+          : // eslint-disable-next-line no-restricted-syntax
+            document.body;
       let ticking = false;
       let previousIsInView = isTriggerVisibleInNearestScrollContainer(
         targetElement,
@@ -226,6 +234,7 @@ export function useDynamicPositioning(
       );
       const handleScroll = function () {
         if (!ticking) {
+          // eslint-disable-next-line no-restricted-syntax
           window.requestAnimationFrame(function () {
             onReposition();
             ticking = false;
@@ -244,17 +253,32 @@ export function useDynamicPositioning(
         }
       };
       const resizeObserver = new ResizeObserver(onReposition);
-      window.addEventListener('resize', onReposition);
-      document.addEventListener('scroll', handleScroll, {
-        capture: true,
-        passive: true,
-      });
+      // Scroll events are non-composed and do not cross shadow boundaries,
+      // so the document-level listener below never sees scrolls inside an
+      // enclosing shadow tree. Key off the editor root rather than the
+      // target — the target may be portaled into the light DOM while the
+      // editor (and its scroll container) live inside a shadow tree, and
+      // getDOMShadowRoots(target) would then return an empty list. Walk
+      // out of the editor's enclosing shadow roots instead so internal
+      // scrolls at any depth reposition the floating menu.
+      const enclosingShadowRoots = getDOMShadowRoots(
+        rootElement ?? targetElement,
+      );
       resizeObserver.observe(targetElement);
-      return () => {
-        resizeObserver.unobserve(targetElement);
-        window.removeEventListener('resize', onReposition);
-        document.removeEventListener('scroll', handleScroll, true);
-      };
+      return mergeRegister(
+        registerEventListener(window, 'resize', onReposition),
+        registerEventListener(document, 'scroll', handleScroll, {
+          capture: true,
+          passive: true,
+        }),
+        ...enclosingShadowRoots.map(root =>
+          registerEventListener(root, 'scroll', handleScroll, {
+            capture: true,
+            passive: true,
+          }),
+        ),
+        () => resizeObserver.unobserve(targetElement),
+      );
     }
   }, [targetElement, editor, onVisibilityChange, onReposition, resolution]);
 }
@@ -262,7 +286,7 @@ export function useDynamicPositioning(
 export const SCROLL_TYPEAHEAD_OPTION_INTO_VIEW_COMMAND: LexicalCommand<{
   index: number;
   option: MenuOption;
-}> = createCommand('SCROLL_TYPEAHEAD_OPTION_INTO_VIEW_COMMAND');
+}> = /* @__PURE__ */ createCommand('SCROLL_TYPEAHEAD_OPTION_INTO_VIEW_COMMAND');
 
 function MenuItem({
   index,
@@ -314,7 +338,7 @@ export function LexicalMenu<TOption extends MenuOption>({
   editor: LexicalEditor;
   anchorElementRef: RefObject<HTMLElement | null>;
   resolution: MenuResolution;
-  options: Array<TOption>;
+  options: TOption[];
   shouldSplitNodeWithQuery?: boolean;
   menuRenderFn?: MenuRenderFn<TOption>;
   onSelectOption: (
@@ -337,6 +361,7 @@ export function LexicalMenu<TOption extends MenuOption>({
 
   useEffect(() => {
     if (preselectFirstItem) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setHighlightedIndex(0);
     }
   }, [matchingString, preselectFirstItem]);
@@ -443,9 +468,9 @@ export function LexicalMenu<TOption extends MenuOption>({
 
   useEffect(() => {
     return mergeRegister(
-      editor.registerCommand<KeyboardEvent>(
+      editor.registerCommand(
         KEY_ARROW_DOWN_COMMAND,
-        (payload) => {
+        payload => {
           const event = payload;
           if (options !== null && options.length) {
             const newSelectedIndex =
@@ -481,9 +506,9 @@ export function LexicalMenu<TOption extends MenuOption>({
         },
         commandPriority,
       ),
-      editor.registerCommand<KeyboardEvent>(
+      editor.registerCommand(
         KEY_ARROW_UP_COMMAND,
-        (payload) => {
+        payload => {
           const event = payload;
           if (options !== null && options.length) {
             const newSelectedIndex =
@@ -513,9 +538,9 @@ export function LexicalMenu<TOption extends MenuOption>({
         },
         commandPriority,
       ),
-      editor.registerCommand<KeyboardEvent>(
+      editor.registerCommand(
         KEY_ESCAPE_COMMAND,
-        (payload) => {
+        payload => {
           const event = payload;
           event.preventDefault();
           event.stopImmediatePropagation();
@@ -524,9 +549,9 @@ export function LexicalMenu<TOption extends MenuOption>({
         },
         commandPriority,
       ),
-      editor.registerCommand<KeyboardEvent>(
+      editor.registerCommand(
         KEY_TAB_COMMAND,
-        (payload) => {
+        payload => {
           const event = payload;
           if (
             options === null ||
@@ -548,7 +573,9 @@ export function LexicalMenu<TOption extends MenuOption>({
           if (
             options === null ||
             selectedIndex === null ||
-            options[selectedIndex] == null
+            options[selectedIndex] == null ||
+            // Shift+Enter must reach rich-text line-break handling
+            (event && event.shiftKey)
           ) {
             return false;
           }
@@ -607,21 +634,41 @@ function setContainerDivAttributes(
   containerDiv.style.position = 'absolute';
 }
 
+function resolveMenuParent(
+  editor: LexicalEditor,
+): HTMLElement | ShadowRoot | undefined {
+  if (!CAN_USE_DOM) {
+    return undefined;
+  }
+  const rootElement = editor.getRootElement();
+  if (rootElement !== null) {
+    const root = rootElement.getRootNode();
+    if (isDOMShadowRoot(root)) {
+      return root as ShadowRoot;
+    }
+    return rootElement.ownerDocument.body;
+  }
+  // eslint-disable-next-line no-restricted-syntax -- rootElement is null, no ownerDocument available
+  return document.body;
+}
+
 export function useMenuAnchorRef(
   resolution: MenuResolution | null,
   setResolution: (r: MenuResolution | null) => void,
   className?: string,
-  parent: HTMLElement | undefined = CAN_USE_DOM ? document.body : undefined,
+  parent?: HTMLElement,
   shouldIncludePageYOffset__EXPERIMENTAL: boolean = true,
   ariaLabel?: string,
 ): RefObject<HTMLElement | null> {
   const [editor] = useLexicalComposerContext();
+  const resolvedParent: HTMLElement | ShadowRoot | undefined =
+    parent ?? resolveMenuParent(editor);
   const initialAnchorElement = CAN_USE_DOM
-    ? document.createElement('div')
+    ? getRootOwnerDocument(editor.getRootElement()).createElement('div')
     : null;
   const anchorElementRef = useRef<HTMLElement | null>(initialAnchorElement);
   const positionMenu = useCallback(() => {
-    if (anchorElementRef.current === null || parent === undefined) {
+    if (anchorElementRef.current === null || resolvedParent === undefined) {
       return;
     }
     anchorElementRef.current.style.top = anchorElementRef.current.style.bottom;
@@ -636,8 +683,10 @@ export function useMenuAnchorRef(
         top +
         anchorHeight +
         3 +
+        // eslint-disable-next-line no-restricted-syntax
         (shouldIncludePageYOffset__EXPERIMENTAL ? window.pageYOffset : 0)
       }px`;
+      // eslint-disable-next-line no-restricted-syntax
       containerDiv.style.left = `${left + window.pageXOffset}px`;
       containerDiv.style.height = `${height}px`;
       containerDiv.style.width = `${width}px`;
@@ -651,10 +700,12 @@ export function useMenuAnchorRef(
 
         if (left + menuWidth > rootElementRect.right) {
           containerDiv.style.left = `${
+            // eslint-disable-next-line no-restricted-syntax
             rootElementRect.right - menuWidth + window.pageXOffset
           }px`;
         }
         if (
+          // eslint-disable-next-line no-restricted-syntax
           (top + menuHeight > window.innerHeight ||
             top + menuHeight > rootElementRect.bottom) &&
           top - rootElementRect.top > menuHeight + height
@@ -663,6 +714,7 @@ export function useMenuAnchorRef(
             top -
             menuHeight -
             height +
+            // eslint-disable-next-line no-restricted-syntax
             (shouldIncludePageYOffset__EXPERIMENTAL ? window.pageYOffset : 0)
           }px`;
         }
@@ -670,7 +722,7 @@ export function useMenuAnchorRef(
 
       if (!containerDiv.isConnected) {
         setContainerDivAttributes(containerDiv, className, ariaLabel);
-        parent.append(containerDiv);
+        resolvedParent.append(containerDiv);
       }
       containerDiv.setAttribute('id', 'typeahead-menu');
       rootElement.setAttribute('aria-controls', 'typeahead-menu');
@@ -680,7 +732,7 @@ export function useMenuAnchorRef(
     resolution,
     shouldIncludePageYOffset__EXPERIMENTAL,
     className,
-    parent,
+    resolvedParent,
     ariaLabel,
   ]);
 
@@ -726,14 +778,20 @@ export function useMenuAnchorRef(
     initialAnchorElement === anchorElementRef.current
   ) {
     setContainerDivAttributes(initialAnchorElement, className, ariaLabel);
-    if (parent != null) {
-      parent.append(initialAnchorElement);
+    if (resolvedParent != null) {
+      resolvedParent.append(initialAnchorElement);
     }
   }
 
   return anchorElementRef;
 }
 
+/**
+ * Detects whether the text before the cursor should open a typeahead menu.
+ * Given the current `text` and `editor`, it returns a {@link MenuTextMatch}
+ * describing the match, or `null` if there is none. See
+ * {@link useBasicTypeaheadTriggerMatch} for a common implementation.
+ */
 export type TriggerFn = (
   text: string,
   editor: LexicalEditor,

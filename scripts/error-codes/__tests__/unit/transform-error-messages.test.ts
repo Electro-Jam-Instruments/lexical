@@ -11,12 +11,12 @@ import * as fs from 'fs-extra';
 import * as path from 'node:path';
 import {describe, expect, it} from 'vitest';
 
-import transformErrorMessages from '../../transform-error-messages';
+import transformErrorMessages from '../../transform-error-messages.mjs';
 
 const prettierConfig = prettier.resolveConfig(__filename) || {};
 
 function waitTick(): Promise<void> {
-  return new Promise((resolve) => queueMicrotask(resolve));
+  return new Promise(resolve => queueMicrotask(resolve));
 }
 
 async function withCodes(
@@ -44,13 +44,14 @@ function fmt(strings: TemplateStringsArray, ...keys: unknown[]): string {
   // Normalize some of the stuff that babel will inject so the examples are
   // stable and easier to read:
   // - use strict header
-  // - @babel/helper-module-imports interop
+  // - @babel/helper-module-imports interop (CJS require + ESM import forms)
   const before = result
     .join('')
     .replace(/.use strict.;\n/g, '')
     .replace(/var _[^;]+;\n/g, '')
+    .replace(/import [^;]*?from ['"]@lexical\/internal\/[^'"]+['"];\n?/g, '')
     .replace(/function _interopRequireDefault\([^)]*\) {[^;]+?;[\s\n]*}\n/g, '')
-    .replace(/_format(Dev|Prod)(Error|Warning)Message\d+/g, 'format$1$2Message')
+    .replace(/_format(Dev|Prod)(Error|Warning)Message\d*/g, 'format$1$2Message')
     .replace(
       /\(0,\s*format(Dev|Prod)(Error|Warning)Message\.default\)/g,
       'format$1$2Message',
@@ -85,7 +86,7 @@ async function expectTransform(opts: ExpectTransformOptions) {
   return await withCodes(
     opts.messageMapBefore,
     opts.messageMapExpect,
-    async (errorCodesPath) => {
+    async errorCodesPath => {
       const {code} = babel.transformSync(fmt`${opts.codeBefore}`, {
         configFile: false,
         plugins: [[transformErrorMessages, {errorCodesPath, ...opts.opts}]],

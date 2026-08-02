@@ -21,7 +21,7 @@ import {initializeUnitTest, invariant} from 'lexical/src/__tests__/utils';
 import {describe, expect, test} from 'vitest';
 
 describe('LexicalTabNode tests', () => {
-  initializeUnitTest((testEnv) => {
+  initializeUnitTest(testEnv => {
     test('INSERT_TAB_COMMAND applies selection format and style to TabNode', async () => {
       const {editor} = testEnv;
       registerRichText(editor);
@@ -44,12 +44,12 @@ describe('LexicalTabNode tests', () => {
       });
 
       await editor.dispatchCommand(FORMAT_TEXT_COMMAND, 'bold');
-      await editor.dispatchCommand(INSERT_TAB_COMMAND, undefined);
+      await editor.dispatchCommand(INSERT_TAB_COMMAND);
 
       await editor.read(() => {
         const root = $getRoot();
         const nodes = root.getAllTextNodes();
-        const tabNode = nodes.find((n) => n.getType() === 'tab');
+        const tabNode = nodes.find(n => n.getType() === 'tab');
         invariant(tabNode !== undefined && $isTabNode(tabNode));
         expect(tabNode.getFormat()).toBe(1);
       });
@@ -85,14 +85,14 @@ describe('LexicalTabNode tests', () => {
         textNode.select(1, 1);
       });
 
-      await editor.dispatchCommand(INSERT_TAB_COMMAND, undefined);
-      await editor.dispatchCommand(INSERT_TAB_COMMAND, undefined);
+      await editor.dispatchCommand(INSERT_TAB_COMMAND);
+      await editor.dispatchCommand(INSERT_TAB_COMMAND);
 
       await editor.update(() => {
         const root = $getRoot();
         const tabNodes = root
           .getAllTextNodes()
-          .filter((n) => n.getType() === 'tab');
+          .filter(n => n.getType() === 'tab');
         expect(tabNodes.length).toBe(2);
         tabNodes[1].selectStart();
       });
@@ -106,7 +106,7 @@ describe('LexicalTabNode tests', () => {
       await editor.read(() => {
         const root = $getRoot();
         const nodes = root.getAllTextNodes();
-        const xNode = nodes.find((n) => n.getTextContent() === 'x');
+        const xNode = nodes.find(n => n.getTextContent() === 'x');
         invariant(xNode !== undefined && $isTextNode(xNode));
         expect(xNode.getFormat()).toBe(1);
       });

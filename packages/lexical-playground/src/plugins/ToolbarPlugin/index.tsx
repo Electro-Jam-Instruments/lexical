@@ -6,8 +6,7 @@
  *
  */
 
-import type {JSX} from 'react';
-
+import {useMergeRefs} from '@floating-ui/react';
 import {$isCodeNode} from '@lexical/code';
 import {
   getCodeLanguageOptions as getCodeLanguageOptionsPrism,
@@ -21,7 +20,10 @@ import {
 import {INSERT_HORIZONTAL_RULE_COMMAND} from '@lexical/extension';
 import {$isLinkNode, TOGGLE_LINK_COMMAND} from '@lexical/link';
 import {$isListNode, ListNode} from '@lexical/list';
+import {ExtensionComponent} from '@lexical/react/ExtensionComponent';
 import {INSERT_EMBED_COMMAND} from '@lexical/react/LexicalAutoEmbedPlugin';
+import {useLexicalFocusManagerRef} from '@lexical/react/useLexicalFocusManagerRef';
+import {useLexicalRovingTabIndexRef} from '@lexical/react/useLexicalRovingTabIndexRef';
 import {$isHeadingNode} from '@lexical/rich-text';
 import {
   $getSelectionStyleValueForProperty,
@@ -29,15 +31,10 @@ import {
   $patchStyleText,
 } from '@lexical/selection';
 import {$isTableNode, $isTableSelection} from '@lexical/table';
-import {
-  $findMatchingParent,
-  $getNearestNodeOfType,
-  $isEditorIsNestedEditor,
-  IS_APPLE,
-  mergeRegister,
-} from '@lexical/utils';
+import {$getNearestNodeOfType, $isEditorIsNestedEditor} from '@lexical/utils';
 import {
   $addUpdateTag,
+  $findMatchingParent,
   $getNodeByKey,
   $getRoot,
   $getSelection,
@@ -45,32 +42,35 @@ import {
   $isNodeSelection,
   $isRangeSelection,
   $isRootOrShadowRoot,
+  type AnyLexicalCommand,
   CAN_REDO_COMMAND,
   CAN_UNDO_COMMAND,
   COMMAND_PRIORITY_CRITICAL,
-  CommandPayloadType,
-  ElementFormatType,
+  type CommandPayloadType,
+  type ElementFormatType,
   FORMAT_ELEMENT_COMMAND,
   FORMAT_TEXT_COMMAND,
   HISTORIC_TAG,
   INDENT_CONTENT_COMMAND,
-  LexicalCommand,
-  LexicalEditor,
-  LexicalNode,
-  NodeKey,
+  IS_APPLE,
+  type LexicalEditor,
+  type LexicalNode,
+  mergeRegister,
+  type NodeKey,
   OUTDENT_CONTENT_COMMAND,
   REDO_COMMAND,
   SELECTION_CHANGE_COMMAND,
   SKIP_DOM_SELECTION_TAG,
   SKIP_SELECTION_FOCUS_TAG,
-  TextFormatType,
+  type TextFormatType,
   UNDO_COMMAND,
 } from 'lexical';
-import {Dispatch, useCallback, useEffect, useState} from 'react';
+import {type Dispatch, type JSX, useCallback, useEffect, useState} from 'react';
 
 import {useSettings} from '../../context/SettingsContext';
 import {
   blockTypeToBlockName,
+  DEFAULT_FONT_SIZE,
   useToolbarState,
 } from '../../context/ToolbarContext';
 import useModal from '../../hooks/useModal';
@@ -82,19 +82,22 @@ import {isKeyboardInput} from '../../utils/focusUtils';
 import {getSelectedNode} from '../../utils/getSelectedNode';
 import {sanitizeUrl} from '../../utils/url';
 import {EmbedConfigs} from '../AutoEmbedPlugin';
-import {INSERT_COLLAPSIBLE_COMMAND} from '../CollapsiblePlugin';
+import {INSERT_COLLAPSIBLE_COMMAND} from '../CollapsibleExtension';
 import {INSERT_DATETIME_COMMAND} from '../DateTimeExtension';
-import {InsertEquationDialog} from '../EquationsPlugin';
-import {INSERT_EXCALIDRAW_COMMAND} from '../ExcalidrawPlugin';
+import {InsertEquationDialog} from '../EquationsExtension';
+import {INSERT_EXCALIDRAW_COMMAND} from '../ExcalidrawExtension';
 import {
   INSERT_IMAGE_COMMAND,
   InsertImageDialog,
-  InsertImagePayload,
+  type InsertImagePayload,
 } from '../ImagesExtension';
-import InsertLayoutDialog from '../LayoutPlugin/InsertLayoutDialog';
-import {INSERT_PAGE_BREAK} from '../PageBreakPlugin';
-import {InsertPollDialog} from '../PollPlugin';
+import InsertLayoutDialog from '../LayoutExtension/InsertLayoutDialog';
+import {INSERT_PAGE_BREAK} from '../PageBreakExtension';
+import {PagesReactExtension} from '../PagesReactExtension';
+import {InsertPollDialog} from '../PollExtension';
+import {$isRubyNode, $toggleRuby} from '../RubyExtension/RubyNode';
 import {SHORTCUTS} from '../ShortcutsPlugin/shortcuts';
+import ShortcutsHelpDialog from '../ShortcutsPlugin/ShortcutsHelpDialog';
 import {InsertTableDialog} from '../TablePlugin';
 import FontSize, {parseFontSizeForToolbar} from './fontSize';
 import {
@@ -115,12 +118,13 @@ const rootTypeToRootName = {
 };
 
 const CODE_LANGUAGE_OPTIONS_PRISM: [string, string][] =
-  getCodeLanguageOptionsPrism().filter((option) =>
+  getCodeLanguageOptionsPrism().filter(option =>
     [
       'c',
       'clike',
       'cpp',
       'css',
+      'go',
       'html',
       'java',
       'js',
@@ -141,12 +145,13 @@ const CODE_LANGUAGE_OPTIONS_PRISM: [string, string][] =
   );
 
 const CODE_LANGUAGE_OPTIONS_SHIKI: [string, string][] =
-  getCodeLanguageOptionsShiki().filter((option) =>
+  getCodeLanguageOptionsShiki().filter(option =>
     [
       'c',
       'clike',
       'cpp',
       'css',
+      'go',
       'html',
       'java',
       'js',
@@ -166,7 +171,7 @@ const CODE_LANGUAGE_OPTIONS_SHIKI: [string, string][] =
   );
 
 const CODE_THEME_OPTIONS_SHIKI: [string, string][] =
-  getCodeThemeOptionsShiki().filter((option) =>
+  getCodeThemeOptionsShiki().filter(option =>
     [
       'catppuccin-latte',
       'everforest-light',
@@ -518,7 +523,7 @@ function ElementFormatDropdown({
       <Divider />
       <DropDownItem
         onClick={() => {
-          editor.dispatchCommand(OUTDENT_CONTENT_COMMAND, undefined);
+          editor.dispatchCommand(OUTDENT_CONTENT_COMMAND);
         }}
         className="item wide">
         <div className="icon-text-container">
@@ -529,7 +534,7 @@ function ElementFormatDropdown({
       </DropDownItem>
       <DropDownItem
         onClick={() => {
-          editor.dispatchCommand(INDENT_CONTENT_COMMAND, undefined);
+          editor.dispatchCommand(INDENT_CONTENT_COMMAND);
         }}
         className="item wide">
         <div className="icon-text-container">
@@ -546,7 +551,7 @@ function $findTopLevelElement(node: LexicalNode) {
   let topLevelElement =
     node.getKey() === 'root'
       ? node
-      : $findMatchingParent(node, (e) => {
+      : $findMatchingParent(node, e => {
           const parent = e.getParent();
           return parent !== null && $isRootOrShadowRoot(parent);
         });
@@ -562,11 +567,13 @@ export default function ToolbarPlugin({
   activeEditor,
   setActiveEditor,
   setIsLinkEditMode,
+  setIsRubyEditMode,
 }: {
   editor: LexicalEditor;
   activeEditor: LexicalEditor;
   setActiveEditor: Dispatch<LexicalEditor>;
   setIsLinkEditMode: Dispatch<boolean>;
+  setIsRubyEditMode: Dispatch<boolean>;
 }): JSX.Element {
   const [selectedElementKey, setSelectedElementKey] = useState<NodeKey | null>(
     null,
@@ -574,8 +581,11 @@ export default function ToolbarPlugin({
   const [modal, showModal] = useModal();
   const [isEditable, setIsEditable] = useState(() => editor.isEditable());
   const {toolbarState, updateToolbarState} = useToolbarState();
+  const rovingRef = useLexicalRovingTabIndexRef();
+  const focusManagerRef = useLexicalFocusManagerRef();
+  const toolbarRef = useMergeRefs([rovingRef, focusManagerRef]);
 
-  const dispatchToolbarCommand = <T extends LexicalCommand<unknown>>(
+  const dispatchToolbarCommand = <T extends AnyLexicalCommand>(
     command: T,
     payload: CommandPayloadType<T> | undefined = undefined,
     skipRefocus: boolean = false,
@@ -712,7 +722,7 @@ export default function ToolbarPlugin({
         // If node is a link, we need to fetch the parent paragraph node to set format
         matchingParent = $findMatchingParent(
           node,
-          (parentNode) => $isElementNode(parentNode) && !parentNode.isInline(),
+          parentNode => $isElementNode(parentNode) && !parentNode.isInline(),
         );
       }
 
@@ -741,7 +751,11 @@ export default function ToolbarPlugin({
       updateToolbarState('isCode', selection.hasFormat('code'));
       updateToolbarState(
         'fontSize',
-        $getSelectionStyleValueForProperty(selection, 'font-size', '15px'),
+        $getSelectionStyleValueForProperty(
+          selection,
+          'font-size',
+          `${DEFAULT_FONT_SIZE}px`,
+        ),
       );
       updateToolbarState('isLowercase', selection.hasFormat('lowercase'));
       updateToolbarState('isUppercase', selection.hasFormat('uppercase'));
@@ -792,17 +806,14 @@ export default function ToolbarPlugin({
   }, [editor, $updateToolbar, setActiveEditor]);
 
   useEffect(() => {
-    activeEditor.getEditorState().read(
-      () => {
-        $updateToolbar();
-      },
-      {editor: activeEditor},
-    );
+    activeEditor.read('latest', () => {
+      $updateToolbar();
+    });
   }, [activeEditor, $updateToolbar]);
 
   useEffect(() => {
     return mergeRegister(
-      editor.registerEditableListener((editable) => {
+      editor.registerEditableListener(editable => {
         setIsEditable(editable);
       }),
       activeEditor.registerUpdateListener(({editorState}) => {
@@ -813,17 +824,17 @@ export default function ToolbarPlugin({
           {editor: activeEditor},
         );
       }),
-      activeEditor.registerCommand<boolean>(
+      activeEditor.registerCommand(
         CAN_UNDO_COMMAND,
-        (payload) => {
+        payload => {
           updateToolbarState('canUndo', payload);
           return false;
         },
         COMMAND_PRIORITY_CRITICAL,
       ),
-      activeEditor.registerCommand<boolean>(
+      activeEditor.registerCommand(
         CAN_REDO_COMMAND,
-        (payload) => {
+        payload => {
           updateToolbarState('canRedo', payload);
           return false;
         },
@@ -885,8 +896,28 @@ export default function ToolbarPlugin({
     }
   }, [activeEditor, setIsLinkEditMode, toolbarState.isLink]);
 
+  const insertRuby = useCallback(() => {
+    const {hasRuby, hasSelection} = activeEditor.read(() => {
+      const selection = $getSelection();
+      if ($isRangeSelection(selection)) {
+        return {
+          hasRuby: selection.getNodes().some($isRubyNode),
+          hasSelection: !selection.isCollapsed(),
+        };
+      }
+      return {hasRuby: false, hasSelection: false};
+    });
+    if (hasRuby) {
+      activeEditor.update(() => {
+        $toggleRuby(null);
+      });
+    } else if (hasSelection) {
+      setIsRubyEditMode(true);
+    }
+  }, [activeEditor, setIsRubyEditMode]);
+
   const onCodeLanguageSelect = useCallback(
-    (value: string) => {
+    (value: string | null) => {
       activeEditor.update(() => {
         $addUpdateTag(SKIP_SELECTION_FOCUS_TAG);
         if (selectedElementKey !== null) {
@@ -920,10 +951,14 @@ export default function ToolbarPlugin({
   const canViewerSeeInsertCodeButton = !toolbarState.isImageCaption;
 
   return (
-    <div className="toolbar">
+    <div
+      ref={toolbarRef}
+      className="toolbar"
+      role="toolbar"
+      aria-label="Editor toolbar">
       <button
         disabled={!toolbarState.canUndo || !isEditable}
-        onClick={(e) =>
+        onClick={e =>
           dispatchToolbarCommand(UNDO_COMMAND, undefined, isKeyboardInput(e))
         }
         title={IS_APPLE ? 'Undo (⌘Z)' : 'Undo (Ctrl+Z)'}
@@ -934,7 +969,7 @@ export default function ToolbarPlugin({
       </button>
       <button
         disabled={!toolbarState.canRedo || !isEditable}
-        onClick={(e) =>
+        onClick={e =>
           dispatchToolbarCommand(REDO_COMMAND, undefined, isKeyboardInput(e))
         }
         title={IS_APPLE ? 'Redo (⇧⌘Z)' : 'Redo (Ctrl+Y)'}
@@ -963,13 +998,23 @@ export default function ToolbarPlugin({
               disabled={!isEditable}
               buttonClassName="toolbar-item code-language"
               buttonLabel={
-                (CODE_LANGUAGE_OPTIONS_PRISM.find(
-                  (opt) =>
-                    opt[0] ===
-                    normalizeCodeLanguagePrism(toolbarState.codeLanguage),
-                ) || ['', ''])[1]
+                toolbarState.codeLanguage
+                  ? (CODE_LANGUAGE_OPTIONS_PRISM.find(
+                      opt =>
+                        opt[0] ===
+                        normalizeCodeLanguagePrism(toolbarState.codeLanguage),
+                    ) || ['', ''])[1]
+                  : '(No language)'
               }
               buttonAriaLabel="Select language">
+              <DropDownItem
+                className={`item ${dropDownActiveClass(
+                  !toolbarState.codeLanguage,
+                )}`}
+                onClick={() => onCodeLanguageSelect(null)}
+                key="__no_language__">
+                <span className="text">(No language)</span>
+              </DropDownItem>
               {CODE_LANGUAGE_OPTIONS_PRISM.map(([value, name]) => {
                 return (
                   <DropDownItem
@@ -990,13 +1035,23 @@ export default function ToolbarPlugin({
                 disabled={!isEditable}
                 buttonClassName="toolbar-item code-language"
                 buttonLabel={
-                  (CODE_LANGUAGE_OPTIONS_SHIKI.find(
-                    (opt) =>
-                      opt[0] ===
-                      normalizeCodeLanguageShiki(toolbarState.codeLanguage),
-                  ) || ['', ''])[1]
+                  toolbarState.codeLanguage
+                    ? (CODE_LANGUAGE_OPTIONS_SHIKI.find(
+                        opt =>
+                          opt[0] ===
+                          normalizeCodeLanguageShiki(toolbarState.codeLanguage),
+                      ) || ['', ''])[1]
+                    : '(No language)'
                 }
                 buttonAriaLabel="Select language">
+                <DropDownItem
+                  className={`item ${dropDownActiveClass(
+                    !toolbarState.codeLanguage,
+                  )}`}
+                  onClick={() => onCodeLanguageSelect(null)}
+                  key="__no_language__">
+                  <span className="text">(No language)</span>
+                </DropDownItem>
                 {CODE_LANGUAGE_OPTIONS_SHIKI.map(([value, name]) => {
                   return (
                     <DropDownItem
@@ -1015,7 +1070,7 @@ export default function ToolbarPlugin({
                 buttonClassName="toolbar-item code-language"
                 buttonLabel={
                   (CODE_THEME_OPTIONS_SHIKI.find(
-                    (opt) => opt[0] === toolbarState.codeTheme,
+                    opt => opt[0] === toolbarState.codeTheme,
                   ) || ['', ''])[1]
                 }
                 buttonAriaLabel="Select theme">
@@ -1054,9 +1109,7 @@ export default function ToolbarPlugin({
           <Divider />
           <button
             disabled={!isEditable}
-            onClick={(e) =>
-              dispatchFormatTextCommand('bold', isKeyboardInput(e))
-            }
+            onClick={e => dispatchFormatTextCommand('bold', isKeyboardInput(e))}
             className={
               'toolbar-item spaced ' + (toolbarState.isBold ? 'active' : '')
             }
@@ -1067,7 +1120,7 @@ export default function ToolbarPlugin({
           </button>
           <button
             disabled={!isEditable}
-            onClick={(e) =>
+            onClick={e =>
               dispatchFormatTextCommand('italic', isKeyboardInput(e))
             }
             className={
@@ -1080,7 +1133,7 @@ export default function ToolbarPlugin({
           </button>
           <button
             disabled={!isEditable}
-            onClick={(e) =>
+            onClick={e =>
               dispatchFormatTextCommand('underline', isKeyboardInput(e))
             }
             className={
@@ -1095,7 +1148,7 @@ export default function ToolbarPlugin({
           {canViewerSeeInsertCodeButton && (
             <button
               disabled={!isEditable}
-              onClick={(e) =>
+              onClick={e =>
                 dispatchFormatTextCommand('code', isKeyboardInput(e))
               }
               className={
@@ -1117,6 +1170,15 @@ export default function ToolbarPlugin({
             title={`Insert link (${SHORTCUTS.INSERT_LINK})`}
             type="button">
             <i className="format link" />
+          </button>
+          <button
+            disabled={!isEditable}
+            onClick={insertRuby}
+            className="toolbar-item spaced"
+            aria-label="Insert ruby annotation"
+            title="Insert ruby annotation"
+            type="button">
+            <i className="format ruby" />
           </button>
           <DropdownColorPicker
             disabled={!isEditable}
@@ -1143,7 +1205,7 @@ export default function ToolbarPlugin({
             buttonAriaLabel="Formatting options for additional text styles"
             buttonIconClassName="icon dropdown-more">
             <DropDownItem
-              onClick={(e) =>
+              onClick={e =>
                 dispatchFormatTextCommand('lowercase', isKeyboardInput(e))
               }
               className={
@@ -1158,7 +1220,7 @@ export default function ToolbarPlugin({
               <span className="shortcut">{SHORTCUTS.LOWERCASE}</span>
             </DropDownItem>
             <DropDownItem
-              onClick={(e) =>
+              onClick={e =>
                 dispatchFormatTextCommand('uppercase', isKeyboardInput(e))
               }
               className={
@@ -1173,7 +1235,7 @@ export default function ToolbarPlugin({
               <span className="shortcut">{SHORTCUTS.UPPERCASE}</span>
             </DropDownItem>
             <DropDownItem
-              onClick={(e) =>
+              onClick={e =>
                 dispatchFormatTextCommand('capitalize', isKeyboardInput(e))
               }
               className={
@@ -1188,7 +1250,7 @@ export default function ToolbarPlugin({
               <span className="shortcut">{SHORTCUTS.CAPITALIZE}</span>
             </DropDownItem>
             <DropDownItem
-              onClick={(e) =>
+              onClick={e =>
                 dispatchFormatTextCommand('strikethrough', isKeyboardInput(e))
               }
               className={
@@ -1203,7 +1265,7 @@ export default function ToolbarPlugin({
               <span className="shortcut">{SHORTCUTS.STRIKETHROUGH}</span>
             </DropDownItem>
             <DropDownItem
-              onClick={(e) =>
+              onClick={e =>
                 dispatchFormatTextCommand('subscript', isKeyboardInput(e))
               }
               className={
@@ -1218,7 +1280,7 @@ export default function ToolbarPlugin({
               <span className="shortcut">{SHORTCUTS.SUBSCRIPT}</span>
             </DropDownItem>
             <DropDownItem
-              onClick={(e) =>
+              onClick={e =>
                 dispatchFormatTextCommand('superscript', isKeyboardInput(e))
               }
               className={
@@ -1233,7 +1295,7 @@ export default function ToolbarPlugin({
               <span className="shortcut">{SHORTCUTS.SUPERSCRIPT}</span>
             </DropDownItem>
             <DropDownItem
-              onClick={(e) =>
+              onClick={e =>
                 dispatchFormatTextCommand('highlight', isKeyboardInput(e))
               }
               className={
@@ -1247,7 +1309,7 @@ export default function ToolbarPlugin({
               </div>
             </DropDownItem>
             <DropDownItem
-              onClick={(e) => clearFormatting(activeEditor, isKeyboardInput(e))}
+              onClick={e => clearFormatting(activeEditor, isKeyboardInput(e))}
               className="item wide"
               title="Clear text formatting"
               aria-label="Clear all text formatting">
@@ -1258,6 +1320,7 @@ export default function ToolbarPlugin({
               <span className="shortcut">{SHORTCUTS.CLEAR_FORMATTING}</span>
             </DropDownItem>
           </DropDown>
+          <ExtensionComponent lexical:extension={PagesReactExtension} />
           {canViewerSeeInsertDropdown && (
             <>
               <Divider />
@@ -1283,7 +1346,7 @@ export default function ToolbarPlugin({
                 </DropDownItem>
                 <DropDownItem
                   onClick={() => {
-                    showModal('Insert Image', (onClose) => (
+                    showModal('Insert Image', onClose => (
                       <InsertImageDialog
                         activeEditor={activeEditor}
                         onClose={onClose}
@@ -1315,7 +1378,7 @@ export default function ToolbarPlugin({
                 </DropDownItem>
                 <DropDownItem
                   onClick={() => {
-                    showModal('Insert Table', (onClose) => (
+                    showModal('Insert Table', onClose => (
                       <InsertTableDialog
                         activeEditor={activeEditor}
                         onClose={onClose}
@@ -1328,7 +1391,7 @@ export default function ToolbarPlugin({
                 </DropDownItem>
                 <DropDownItem
                   onClick={() => {
-                    showModal('Insert Poll', (onClose) => (
+                    showModal('Insert Poll', onClose => (
                       <InsertPollDialog
                         activeEditor={activeEditor}
                         onClose={onClose}
@@ -1341,7 +1404,7 @@ export default function ToolbarPlugin({
                 </DropDownItem>
                 <DropDownItem
                   onClick={() => {
-                    showModal('Insert Columns Layout', (onClose) => (
+                    showModal('Insert Columns Layout', onClose => (
                       <InsertLayoutDialog
                         activeEditor={activeEditor}
                         onClose={onClose}
@@ -1355,7 +1418,7 @@ export default function ToolbarPlugin({
 
                 <DropDownItem
                   onClick={() => {
-                    showModal('Insert Equation', (onClose) => (
+                    showModal('Insert Equation', onClose => (
                       <InsertEquationDialog
                         activeEditor={activeEditor}
                         onClose={onClose}
@@ -1397,7 +1460,7 @@ export default function ToolbarPlugin({
                   <i className="icon calendar" />
                   <span className="text">Date</span>
                 </DropDownItem>
-                {EmbedConfigs.map((embedConfig) => (
+                {EmbedConfigs.map(embedConfig => (
                   <DropDownItem
                     key={embedConfig.type}
                     onClick={() =>
@@ -1423,6 +1486,17 @@ export default function ToolbarPlugin({
         editor={activeEditor}
         isRTL={toolbarState.isRTL}
       />
+      <Divider />
+      <button
+        type="button"
+        className="toolbar-item spaced"
+        title="Keyboard shortcuts"
+        aria-label="Show keyboard shortcuts"
+        onClick={() =>
+          showModal('Keyboard shortcuts', () => <ShortcutsHelpDialog />)
+        }>
+        <span className="text">?</span>
+      </button>
 
       {modal}
     </div>

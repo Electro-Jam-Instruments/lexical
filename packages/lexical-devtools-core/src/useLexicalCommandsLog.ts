@@ -6,16 +6,18 @@
  *
  */
 
-import type {LexicalEditor} from 'lexical';
-
-import {COMMAND_PRIORITY_CRITICAL, LexicalCommand} from 'lexical';
+import {
+  COMMAND_PRIORITY_CRITICAL,
+  type LexicalCommand,
+  type LexicalEditor,
+} from 'lexical';
 import {useEffect, useState} from 'react';
 
 export type LexicalCommandEntry = {index: number} & LexicalCommand<unknown> & {
     payload: unknown;
   };
 
-export type LexicalCommandLog = ReadonlyArray<LexicalCommandEntry>;
+export type LexicalCommandLog = readonly LexicalCommandEntry[];
 
 export function registerLexicalCommandLogger(
   editor: LexicalEditor,
@@ -29,14 +31,14 @@ export function registerLexicalCommandLogger(
     unregisterCommandListeners.push(
       editor.registerCommand(
         command,
-        (payload) => {
+        payload => {
           index += 1;
           const entry: LexicalCommandEntry = {
             index,
             payload,
             type: command.type ? command.type : 'UNKNOWN',
           };
-          setLoggedCommands((state) => [...state.slice(-9), entry]);
+          setLoggedCommands(state => [...state.slice(-9), entry]);
           return false;
         },
         COMMAND_PRIORITY_CRITICAL,
@@ -44,7 +46,7 @@ export function registerLexicalCommandLogger(
     );
   }
 
-  return () => unregisterCommandListeners.forEach((unregister) => unregister());
+  return () => unregisterCommandListeners.forEach(unregister => unregister());
 }
 
 export function useLexicalCommandsLog(

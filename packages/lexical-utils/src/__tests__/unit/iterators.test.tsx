@@ -5,10 +5,16 @@
  * LICENSE file in the root directory of this source tree.
  *
  */
-import type {Klass, LexicalEditor, LexicalNode} from 'lexical';
 
 import {$firstToLastIterator, $lastToFirstIterator} from '@lexical/utils';
-import {$createParagraphNode, $createTextNode, TextNode} from 'lexical';
+import {
+  $createParagraphNode,
+  $createTextNode,
+  type Klass,
+  type LexicalEditor,
+  type LexicalNode,
+  TextNode,
+} from 'lexical';
 import {createTestEditor} from 'lexical/src/__tests__/utils';
 import {beforeEach, describe, expect, it} from 'vitest';
 
@@ -37,16 +43,16 @@ describe('$firstToLastIterator', () => {
         );
         // Check initial state
         expect(
-          parent.getAllTextNodes().map((node) => node.getTextContent()),
+          parent.getAllTextNodes().map(node => node.getTextContent()),
         ).toEqual(['0', '1', '2', '3', '4']);
         expect(
-          Array.from($firstToLastIterator(parent), (node) => {
+          Array.from($firstToLastIterator(parent), node => {
             return assertClass(node, TextNode).getTextContent();
           }),
         ).toEqual(['0', '1', '2', '3', '4']);
         // Parent was not affected
         expect(
-          parent.getAllTextNodes().map((node) => node.getTextContent()),
+          parent.getAllTextNodes().map(node => node.getTextContent()),
         ).toEqual(['0', '1', '2', '3', '4']);
       },
       {discrete: true},
@@ -62,10 +68,10 @@ describe('$firstToLastIterator', () => {
         );
         // Check initial state
         expect(
-          parent.getAllTextNodes().map((node) => node.getTextContent()),
+          parent.getAllTextNodes().map(node => node.getTextContent()),
         ).toEqual(['0', '1', '2', '3', '4']);
         expect(
-          Array.from($firstToLastIterator(parent), (node) => {
+          Array.from($firstToLastIterator(parent), node => {
             const rval = assertClass(node, TextNode).getTextContent();
             node.remove();
             return rval;
@@ -86,10 +92,10 @@ describe('$firstToLastIterator', () => {
         );
         // Check initial state
         expect(
-          parent.getAllTextNodes().map((node) => node.getTextContent()),
+          parent.getAllTextNodes().map(node => node.getTextContent()),
         ).toEqual(['0', '1', '2', '3', '4']);
         expect(() =>
-          Array.from($firstToLastIterator(parent), (node) => {
+          Array.from($firstToLastIterator(parent), node => {
             const rval = assertClass(node, TextNode).getTextContent();
             parent.append(node);
             return rval;
@@ -109,10 +115,10 @@ describe('$firstToLastIterator', () => {
         );
         // Check initial state
         expect(
-          parent.getAllTextNodes().map((node) => node.getTextContent()),
+          parent.getAllTextNodes().map(node => node.getTextContent()),
         ).toEqual(['0', '1', '2', '3', '4']);
         expect(
-          Array.from($firstToLastIterator(parent), (node) => {
+          Array.from($firstToLastIterator(parent), node => {
             const rval = assertClass(node, TextNode).getTextContent();
             if (node.getPreviousSibling() !== null) {
               parent.splice(0, 0, [node]);
@@ -122,7 +128,7 @@ describe('$firstToLastIterator', () => {
         ).toEqual(['0', '1', '2', '3', '4']);
         // This mutation reversed the nodes while traversing
         expect(
-          parent.getAllTextNodes().map((node) => node.getTextContent()),
+          parent.getAllTextNodes().map(node => node.getTextContent()),
         ).toEqual(['4', '3', '2', '1', '0']);
       },
       {discrete: true},
@@ -148,16 +154,16 @@ describe('$lastToFirstIterator', () => {
         );
         // Check initial state
         expect(
-          parent.getAllTextNodes().map((node) => node.getTextContent()),
+          parent.getAllTextNodes().map(node => node.getTextContent()),
         ).toEqual(['0', '1', '2', '3', '4']);
         expect(
-          Array.from($lastToFirstIterator(parent), (node) => {
+          Array.from($lastToFirstIterator(parent), node => {
             return assertClass(node, TextNode).getTextContent();
           }),
         ).toEqual(['4', '3', '2', '1', '0']);
         // Parent was not affected
         expect(
-          parent.getAllTextNodes().map((node) => node.getTextContent()),
+          parent.getAllTextNodes().map(node => node.getTextContent()),
         ).toEqual(['0', '1', '2', '3', '4']);
       },
       {discrete: true},
@@ -173,10 +179,10 @@ describe('$lastToFirstIterator', () => {
         );
         // Check initial state
         expect(
-          parent.getAllTextNodes().map((node) => node.getTextContent()),
+          parent.getAllTextNodes().map(node => node.getTextContent()),
         ).toEqual(['0', '1', '2', '3', '4']);
         expect(
-          Array.from($lastToFirstIterator(parent), (node) => {
+          Array.from($lastToFirstIterator(parent), node => {
             const rval = assertClass(node, TextNode).getTextContent();
             node.remove();
             return rval;
@@ -197,10 +203,10 @@ describe('$lastToFirstIterator', () => {
         );
         // Check initial state
         expect(
-          parent.getAllTextNodes().map((node) => node.getTextContent()),
+          parent.getAllTextNodes().map(node => node.getTextContent()),
         ).toEqual(['0', '1', '2', '3', '4']);
         expect(
-          Array.from($lastToFirstIterator(parent), (node) => {
+          Array.from($lastToFirstIterator(parent), node => {
             const rval = assertClass(node, TextNode).getTextContent();
             parent.append(node);
             return rval;
@@ -208,7 +214,7 @@ describe('$lastToFirstIterator', () => {
         ).toEqual(['4', '3', '2', '1', '0']);
         // This mutation reversed the nodes while traversing
         expect(
-          parent.getAllTextNodes().map((node) => node.getTextContent()),
+          parent.getAllTextNodes().map(node => node.getTextContent()),
         ).toEqual(['4', '3', '2', '1', '0']);
       },
       {discrete: true},

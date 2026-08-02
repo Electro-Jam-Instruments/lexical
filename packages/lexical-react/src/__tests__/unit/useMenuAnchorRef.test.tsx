@@ -8,25 +8,28 @@
 
 import {createTestEditor} from 'lexical/src/__tests__/utils';
 import * as React from 'react';
-import {createRoot, Root} from 'react-dom/client';
-import * as ReactTestUtils from 'shared/react-test-utils';
+import {act} from 'react';
+import {createRoot, type Root} from 'react-dom/client';
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 
 import {useMenuAnchorRef} from '../../shared/LexicalMenu';
+
+vi.mock('@lexical/react/LexicalComposerContext', () => ({
+  useLexicalComposerContext: () => [createTestEditor()],
+}));
+
+// Only force CAN_USE_DOM; keep every other real `lexical` export so modules
+// pulled in transitively (e.g. @lexical/extension's defineExtension) still work.
+vi.mock('lexical', async importOriginal => ({
+  ...(await importOriginal<typeof import('lexical')>()),
+  CAN_USE_DOM: false,
+}));
 
 describe('useMenuAnchorRef', () => {
   let container: HTMLDivElement | null = null;
   let reactRoot: Root;
 
   beforeEach(() => {
-    vi.mock('@lexical/react/LexicalComposerContext', () => ({
-      useLexicalComposerContext: () => [createTestEditor()],
-    }));
-
-    vi.mock('shared/canUseDOM', () => ({
-      CAN_USE_DOM: false,
-    }));
-
     container = document.createElement('div');
     reactRoot = createRoot(container);
   });
@@ -56,7 +59,7 @@ describe('useMenuAnchorRef', () => {
       return null;
     }
 
-    await ReactTestUtils.act(async () => {
+    await act(async () => {
       reactRoot.render(<App />);
     });
 

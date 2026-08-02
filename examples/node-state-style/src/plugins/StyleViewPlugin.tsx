@@ -6,6 +6,8 @@
  *
  */
 
+import type {SelectionDetails} from '@zag-js/combobox';
+
 import './StyleViewPlugin.css';
 
 import {
@@ -17,10 +19,10 @@ import {Portal} from '@ark-ui/react/portal';
 import {Splitter, useSplitter} from '@ark-ui/react/splitter';
 import {
   createTreeCollection,
-  TreeCollection,
+  type TreeCollection,
   TreeView,
   useTreeView,
-  UseTreeViewReturn,
+  type UseTreeViewReturn,
 } from '@ark-ui/react/tree-view';
 import {LexicalComposer} from '@lexical/react/LexicalComposer';
 import {useLexicalComposerContext} from '@lexical/react/LexicalComposerContext';
@@ -28,7 +30,6 @@ import {ContentEditable} from '@lexical/react/LexicalContentEditable';
 import {LexicalErrorBoundary} from '@lexical/react/LexicalErrorBoundary';
 import {PlainTextPlugin} from '@lexical/react/LexicalPlainTextPlugin';
 import {$getAdjacentCaret, mergeRegister} from '@lexical/utils';
-import {type SelectionDetails} from '@zag-js/combobox';
 import {
   $addUpdateTag,
   $createLineBreakNode,
@@ -56,12 +57,12 @@ import {
   BLUR_COMMAND,
   COMMAND_PRIORITY_LOW,
   type EditorState,
-  ElementNode,
+  type ElementNode,
   KEY_DOWN_COMMAND,
-  LexicalEditor,
-  LexicalNode,
-  NodeCaret,
-  NodeKey,
+  type LexicalEditor,
+  type LexicalNode,
+  type NodeCaret,
+  type NodeKey,
 } from 'lexical';
 import {
   ChevronRightIcon,
@@ -76,7 +77,7 @@ import React, {
   createContext,
   Fragment,
   type JSX,
-  KeyboardEventHandler,
+  type KeyboardEventHandler,
   use,
   useCallback,
   useEffect,
@@ -90,7 +91,7 @@ import {
   $removeStyleProperty,
   $setStyleProperty,
   getStyleObjectDirect,
-  StyleObject,
+  type StyleObject,
   styleObjectToArray,
 } from '../styleState';
 
@@ -153,7 +154,7 @@ function NodeLabel({node}: {node: LexicalNode}) {
       <button
         className="style-view-node-button"
         title={`Select ${type} node`}
-        onClick={(event) => {
+        onClick={event => {
           event.preventDefault();
           editor.update(() => {
             const caretRange = $isElementNode(node)
@@ -190,7 +191,10 @@ function NodeLabel({node}: {node: LexicalNode}) {
 }
 
 function describeNode(node: LexicalNode): [string, React.ReactNode] {
-  return [`(${node.getKey()}) ${node.getType()}`, <NodeLabel node={node} />];
+  return [
+    `(${node.getKey()}) ${node.getType()}`,
+    <NodeLabel key={node.getKey()} node={node} />,
+  ];
 }
 
 function LexicalNodeTreeViewItem(props: TreeView.NodeProviderProps<NodeKey>) {
@@ -396,7 +400,7 @@ function StyleValuePlugin(props: StyleValueEditorProps) {
       }
     }
     return mergeRegister(
-      editor.registerUpdateListener((payload) => {
+      editor.registerUpdateListener(payload => {
         if (payload.editorState !== payload.prevEditorState) {
           handleInput();
         }
@@ -411,7 +415,7 @@ function StyleValuePlugin(props: StyleValueEditorProps) {
       ),
       editor.registerCommand(
         KEY_DOWN_COMMAND,
-        (e) => {
+        e => {
           if (e.key === 'Enter') {
             e.preventDefault();
             editor.blur();
@@ -445,7 +449,7 @@ function StyleValueEditor(props: StyleValueEditorProps) {
           $patchParsedTextAtRoot(parseRawText(props.value));
         },
         namespace: 'style-view-value',
-        onError: (err) => {
+        onError: err => {
           throw err;
         },
       }}>
@@ -507,7 +511,7 @@ function LexicalTextSelectionPaneContents({node}: {node: LexicalNode}) {
           <button
             className="style-view-node-button style-view-node-button-delete"
             title={`Remove ${k} style`}
-            onClick={(e) => {
+            onClick={e => {
               e.preventDefault();
               editor.update(
                 () => {
@@ -523,7 +527,7 @@ function LexicalTextSelectionPaneContents({node}: {node: LexicalNode}) {
             prop={k}
             value={v || ''}
             onChange={handleChange}
-            ref={(el) => {
+            ref={el => {
               if (el === null) {
                 registeredNodes.delete(k);
                 return;
@@ -604,7 +608,7 @@ function getSuggestedStyleKeys(): readonly (keyof StyleObject)[] {
     for (const k in style) {
       if (typeof style[k] === 'string') {
         const kebab = k
-          .replace(/[A-Z]/g, (s) => '-' + s.toLowerCase())
+          .replace(/[A-Z]/g, s => '-' + s.toLowerCase())
           .replace(/^(webkit|moz|ms|o)-/, '-$1-')
           .replace(/^css-/, '');
         keys.add(kebab as keyof StyleObject);
@@ -619,7 +623,7 @@ function isNotVendorProperty(item: string): boolean {
 }
 
 function useSuggestedStylesCombobox(props: CSSPropertyComboBoxProps) {
-  const initialItems = useMemo(getSuggestedStyleKeys, []);
+  const initialItems = useMemo(() => getSuggestedStyleKeys(), []);
   const [items, setItems] = useState(() =>
     initialItems.filter(isNotVendorProperty).join('\n'),
   );
@@ -635,7 +639,7 @@ function useSuggestedStylesCombobox(props: CSSPropertyComboBoxProps) {
       initialItems
         .filter(
           search
-            ? (item) => item.toLowerCase().startsWith(search)
+            ? item => item.toLowerCase().startsWith(search)
             : isNotVendorProperty,
         )
         .join('\n'),
@@ -669,7 +673,7 @@ const CSSPropertyComboBox = (props: CSSPropertyComboBoxProps) => {
   const {onAddProperty} = props;
   const combobox = useSuggestedStylesCombobox(props);
   const handleKeydown = useCallback<KeyboardEventHandler<HTMLInputElement>>(
-    (event) => {
+    event => {
       const {inputValue} = combobox;
       if (event.key === 'Enter') {
         event.preventDefault();
@@ -700,7 +704,7 @@ const CSSPropertyComboBox = (props: CSSPropertyComboBoxProps) => {
         <Combobox.Positioner>
           <Combobox.Content>
             <Combobox.ItemGroup>
-              {combobox.collection.items.map((item) => (
+              {combobox.collection.items.map(item => (
                 <Combobox.Item key={item} item={item}>
                   <Combobox.ItemText>{item}</Combobox.ItemText>
                   <Combobox.ItemIndicator>✓</Combobox.ItemIndicator>
@@ -798,13 +802,13 @@ function initEditorCollection(
   return Object.assign(state, {
     collection: createTreeCollection<NodeKey>({
       isNodeDisabled: () => false,
-      nodeToChildren: (nodeKey) =>
+      nodeToChildren: nodeKey =>
         state.editorState.read(() => {
           const node = $getNodeByKey(nodeKey);
           return $isElementNode(node) ? node.getChildrenKeys() : [];
         }),
-      nodeToString: (nodeKey) => nodeKey,
-      nodeToValue: (nodeKey) => nodeKey,
+      nodeToString: nodeKey => nodeKey,
+      nodeToValue: nodeKey => nodeKey,
       rootNode: 'root',
     }),
     focusNodeKey: null,

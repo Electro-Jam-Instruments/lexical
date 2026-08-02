@@ -6,25 +6,29 @@
  *
  */
 import {$generateNodesFromDOM} from '@lexical/html';
-import {$wrapSelectionInMarkNode, MarkNode} from '@lexical/mark';
+import {$isMarkNode, $wrapSelectionInMarkNode} from '@lexical/mark';
+import {$insertNodeIntoLeaf} from '@lexical/utils';
 import {
   $createParagraphNode,
   $createRangeSelection,
   $createTextNode,
   $getRoot,
-  ParagraphNode,
-  TextNode,
+  $isElementNode,
+  $isParagraphNode,
+  $isTextNode,
+  $setSelection,
 } from 'lexical';
 import {
+  $assertNodeType,
   $createTestDecoratorNode,
   $createTestElementNode,
   $createTestInlineElementNode,
   initializeUnitTest,
 } from 'lexical/src/__tests__/utils';
-import {beforeEach, describe, expect, test} from 'vitest';
+import {assert, beforeEach, describe, expect, test} from 'vitest';
 
 describe('LexicalMarkNode tests', () => {
-  initializeUnitTest((testEnv) => {
+  initializeUnitTest(testEnv => {
     describe('$wrapSelectionInMarkNode', () => {
       beforeEach(() => {
         testEnv.editor.update(
@@ -40,8 +44,10 @@ describe('LexicalMarkNode tests', () => {
 
         editor.update(() => {
           const textNode = $createTextNode('marked');
-          const paragraphNode =
-            $getRoot().getFirstChildOrThrow<ParagraphNode>();
+          const paragraphNode = $assertNodeType(
+            $getRoot().getFirstChild(),
+            $isParagraphNode,
+          );
           paragraphNode.append(textNode);
           const selection = $createRangeSelection();
           selection.anchor.set(textNode.getKey(), 0, 'text');
@@ -53,7 +59,10 @@ describe('LexicalMarkNode tests', () => {
           $wrapSelectionInMarkNode(selection, false, 'my-id');
 
           expect(paragraphNode.getChildren()).toHaveLength(1);
-          const markNode = paragraphNode.getFirstChildOrThrow<MarkNode>();
+          const markNode = $assertNodeType(
+            paragraphNode.getFirstChild(),
+            $isMarkNode,
+          );
           expect(markNode.getType()).toEqual('mark');
           expect(markNode.getIDs()).toEqual(['my-id']);
           expect(markNode.getChildren()).toHaveLength(1);
@@ -71,8 +80,10 @@ describe('LexicalMarkNode tests', () => {
 
         editor.update(() => {
           const textNode = $createTextNode('unmarked marked unmarked');
-          const paragraphNode =
-            $getRoot().getFirstChildOrThrow<ParagraphNode>();
+          const paragraphNode = $assertNodeType(
+            $getRoot().getFirstChild(),
+            $isParagraphNode,
+          );
           paragraphNode.append(textNode);
           const selection = $createRangeSelection();
           selection.anchor.set(textNode.getKey(), 'unmarked '.length, 'text');
@@ -86,13 +97,13 @@ describe('LexicalMarkNode tests', () => {
           expect(paragraphNode.getTextContent()).toEqual(
             'unmarked marked unmarked',
           );
-          expect(paragraphNode.getChildren().map((c) => c.getType())).toEqual([
+          expect(paragraphNode.getChildren().map(c => c.getType())).toEqual([
             'text',
             'mark',
             'text',
           ]);
           expect(
-            paragraphNode.getChildren().map((c) => c.getTextContent()),
+            paragraphNode.getChildren().map(c => c.getTextContent()),
           ).toEqual(['unmarked ', 'marked', ' unmarked']);
         });
       });
@@ -103,8 +114,10 @@ describe('LexicalMarkNode tests', () => {
         editor.update(() => {
           const decoratorNode = $createTestDecoratorNode();
           const textNode = $createTextNode('more text');
-          const paragraphNode =
-            $getRoot().getFirstChildOrThrow<ParagraphNode>();
+          const paragraphNode = $assertNodeType(
+            $getRoot().getFirstChild(),
+            $isParagraphNode,
+          );
           paragraphNode.append(decoratorNode, textNode);
           const selection = $createRangeSelection();
           selection.anchor.set(paragraphNode.getKey(), 0, 'element');
@@ -116,12 +129,53 @@ describe('LexicalMarkNode tests', () => {
           $wrapSelectionInMarkNode(selection, false, 'my-id');
 
           expect(paragraphNode.getChildren()).toHaveLength(1);
-          const markNode = paragraphNode.getFirstChildOrThrow<MarkNode>();
+          const markNode = $assertNodeType(
+            paragraphNode.getFirstChild(),
+            $isMarkNode,
+          );
           expect(markNode.getType()).toEqual('mark');
-          expect(markNode.getChildren().map((c) => c.getKey())).toEqual([
+          expect(markNode.getChildren().map(c => c.getKey())).toEqual([
             decoratorNode.getKey(),
             textNode.getKey(),
           ]);
+        });
+      });
+
+      test('keeps decorator nodes inside an existing mark', () => {
+        const {editor} = testEnv;
+
+        editor.update(() => {
+          const paragraphNode = $getRoot().getFirstChild();
+          assert($isParagraphNode(paragraphNode), 'Expecting ParagraphNode');
+          const textNode = $createTextNode('aaa x^2 bbb');
+          paragraphNode.append(textNode);
+
+          const selection = textNode.select(0);
+          $wrapSelectionInMarkNode(selection, false, 'comment-id');
+
+          const markNode = paragraphNode.getFirstChildOrThrow();
+          assert($isMarkNode(markNode), 'Expecting MarkNode');
+          const markedTextNode = markNode.getFirstChildOrThrow();
+          assert($isTextNode(markedTextNode), 'Expecting TextNode');
+          const equationSelection = markedTextNode.select(
+            'aaa '.length,
+            'aaa x^2'.length,
+          );
+          $setSelection(equationSelection);
+
+          $insertNodeIntoLeaf($createTestDecoratorNode());
+
+          expect(paragraphNode.getChildren().map(c => c.getType())).toEqual([
+            'mark',
+          ]);
+          const updatedMarkNode = paragraphNode.getFirstChildOrThrow();
+          assert($isMarkNode(updatedMarkNode), 'Expecting MarkNode');
+          expect(updatedMarkNode.getIDs()).toEqual(['comment-id']);
+          const markChildren = updatedMarkNode.getChildren();
+          expect(markChildren).toHaveLength(3);
+          expect(markChildren[0].getTextContent()).toBe('aaa ');
+          expect(markChildren[1].getType()).toBe('test_decorator');
+          expect(markChildren[2].getTextContent()).toBe(' bbb');
         });
       });
 
@@ -131,8 +185,10 @@ describe('LexicalMarkNode tests', () => {
         editor.update(() => {
           const elementNode = $createTestInlineElementNode();
           const textNode = $createTextNode('more text');
-          const paragraphNode =
-            $getRoot().getFirstChildOrThrow<ParagraphNode>();
+          const paragraphNode = $assertNodeType(
+            $getRoot().getFirstChild(),
+            $isParagraphNode,
+          );
           paragraphNode.append(elementNode, textNode);
           const selection = $createRangeSelection();
           selection.anchor.set(paragraphNode.getKey(), 0, 'element');
@@ -144,9 +200,12 @@ describe('LexicalMarkNode tests', () => {
           $wrapSelectionInMarkNode(selection, false, 'my-id');
 
           expect(paragraphNode.getChildren()).toHaveLength(1);
-          const markNode = paragraphNode.getFirstChildOrThrow<MarkNode>();
+          const markNode = $assertNodeType(
+            paragraphNode.getFirstChild(),
+            $isMarkNode,
+          );
           expect(markNode.getType()).toEqual('mark');
-          expect(markNode.getChildren().map((c) => c.getKey())).toEqual([
+          expect(markNode.getChildren().map(c => c.getKey())).toEqual([
             elementNode.getKey(),
             textNode.getKey(),
           ]);
@@ -159,8 +218,10 @@ describe('LexicalMarkNode tests', () => {
         editor.update(() => {
           const elementNode = $createTestElementNode();
           const textNode = $createTextNode('more text');
-          const paragraphNode =
-            $getRoot().getFirstChildOrThrow<ParagraphNode>();
+          const paragraphNode = $assertNodeType(
+            $getRoot().getFirstChild(),
+            $isParagraphNode,
+          );
           paragraphNode.append(elementNode, textNode);
           const selection = $createRangeSelection();
           selection.anchor.set(paragraphNode.getKey(), 0, 'element');
@@ -177,7 +238,10 @@ describe('LexicalMarkNode tests', () => {
           );
 
           // the text part of the selection should still be marked
-          const markNode = paragraphNode.getChildAtIndex(1) as MarkNode;
+          const markNode = $assertNodeType(
+            paragraphNode.getChildAtIndex(1),
+            $isMarkNode,
+          );
           expect(markNode.getType()).toEqual('mark');
           expect(markNode.getChildren()).toHaveLength(1);
           expect(markNode.getTextContent()).toEqual('more text');
@@ -205,11 +269,22 @@ describe('LexicalMarkNode tests', () => {
           const nodes = $generateNodesFromDOM(editor, dom);
 
           expect(nodes).toHaveLength(1);
-          const paragraphNode = nodes[0] as ParagraphNode;
+          const paragraphNode = $assertNodeType(nodes[0], $isElementNode);
           expect(paragraphNode.getChildren()).toHaveLength(3);
-          const textNode1 = paragraphNode.getChildAtIndex(0) as TextNode;
-          const markNode = paragraphNode.getChildAtIndex(1) as MarkNode;
-          const textNode2 = paragraphNode.getChildAtIndex(2) as TextNode;
+          // The <mark> element is imported as plain text in this test, so all
+          // three children are TextNodes.
+          const textNode1 = $assertNodeType(
+            paragraphNode.getChildAtIndex(0),
+            $isTextNode,
+          );
+          const markNode = $assertNodeType(
+            paragraphNode.getChildAtIndex(1),
+            $isTextNode,
+          );
+          const textNode2 = $assertNodeType(
+            paragraphNode.getChildAtIndex(2),
+            $isTextNode,
+          );
 
           expect(textNode1.getTextContent()).toEqual('Foo ');
           expect(markNode.getTextContent()).toEqual('Bar');

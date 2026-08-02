@@ -6,47 +6,43 @@
  *
  */
 
-import type {
-  BaseSelection,
-  DOMConversionMap,
-  DOMConversionOutput,
-  EditorConfig,
-  LexicalCommand,
-  LexicalNode,
-  LexicalUpdateJSON,
-  NodeKey,
-  Point,
-  PointCaret,
-  PointType,
-  RangeSelection,
-  SerializedElementNode,
-} from 'lexical';
-
-import {
-  $findMatchingParent,
-  $insertNodeToNearestRootAtCaret,
-  addClassNamesToElement,
-  isHTMLAnchorElement,
-} from '@lexical/utils';
+import invariant from '@lexical/internal/invariant';
 import {
   $applyNodeReplacement,
   $caretFromPoint,
   $copyNode,
+  $findMatchingParent,
   $getChildCaret,
+  $getDocument,
   $getSelection,
+  $insertNodeToNearestRootAtCaret,
   $isElementNode,
   $isNodeSelection,
   $isRangeSelection,
+  $isSiblingCaret,
   $normalizeCaret,
   $normalizeSelection__EXPERIMENTAL,
   $rewindSiblingCaret,
   $setPointFromCaret,
   $setSelection,
+  addClassNamesToElement,
+  type BaseSelection,
   createCommand,
+  type DOMConversionOutput,
+  type EditorConfig,
   ElementNode,
-  Spread,
+  isHTMLAnchorElement,
+  type LexicalCommand,
+  type LexicalNode,
+  type LexicalUpdateJSON,
+  type NodeKey,
+  type Point,
+  type PointCaret,
+  type PointType,
+  type RangeSelection,
+  type SerializedElementNode,
+  type Spread,
 } from 'lexical';
-import invariant from 'shared/invariant';
 
 export type LinkAttributes = {
   rel?: null | string;
@@ -86,16 +82,16 @@ export class LinkNode extends ElementNode {
   /** @internal */
   __title: null | string;
 
-  static getType(): string {
-    return 'link';
-  }
-
-  static clone(node: LinkNode): LinkNode {
-    return new LinkNode(
-      node.__url,
-      {rel: node.__rel, target: node.__target, title: node.__title},
-      node.__key,
-    );
+  $config() {
+    return this.config('link', {
+      extends: ElementNode,
+      importDOM: {
+        a: () => ({
+          conversion: $convertAnchorElement,
+          priority: 1,
+        }),
+      },
+    });
   }
 
   constructor(
@@ -120,7 +116,7 @@ export class LinkNode extends ElementNode {
   }
 
   createDOM(config: EditorConfig): LinkHTMLElementType {
-    const element = document.createElement('a');
+    const element = $getDocument().createElement('a');
     this.updateLinkDOM(null, element, config);
     addClassNamesToElement(element, config.theme.link);
     return element;
@@ -158,19 +154,6 @@ export class LinkNode extends ElementNode {
     return false;
   }
 
-  static importDOM(): DOMConversionMap | null {
-    return {
-      a: (node: Node) => ({
-        conversion: $convertAnchorElement,
-        priority: 1,
-      }),
-    };
-  }
-
-  static importJSON(serializedNode: SerializedLinkNode): LinkNode {
-    return $createLinkNode().updateFromJSON(serializedNode);
-  }
-
   updateFromJSON(serializedNode: LexicalUpdateJSON<SerializedLinkNode>): this {
     return super
       .updateFromJSON(serializedNode)
@@ -181,15 +164,46 @@ export class LinkNode extends ElementNode {
   }
 
   sanitizeUrl(url: string): string {
+    const rawUrl = url;
     url = formatUrl(url);
     try {
       const parsedUrl = new URL(formatUrl(url));
-      // eslint-disable-next-line no-script-url
+
       if (!SUPPORTED_URL_PROTOCOLS.has(parsedUrl.protocol)) {
         return 'about:blank';
       }
     } catch {
-      return url;
+      // `new URL()` threw, so we could not verify the protocol via the
+      // parser. Preserve fail-secure behavior: default unparseable URLs to
+      // `about:blank` and only allow through inputs that positively match an
+      // allowlisted scheme.
+      //
+      // Check the ORIGINAL input, not the `formatUrl()` output: `formatUrl()`
+      // prepends `https://` to anything it does not recognize as already
+      // having a scheme, which would mask a control-character-obfuscated
+      // scheme (e.g. `java\x00script:` becomes `https://java\x00script:`).
+      //
+      // Before extracting the scheme, strip C0 control characters, DEL and
+      // whitespace, mirroring how browsers ignore these when resolving a
+      // scheme. Without this, control-character-obfuscated schemes that throw
+      // in `new URL()` but are still navigated by some browsers would slip
+      // past a naive scheme check and retain their original, attacker-
+      // controlled value. Stripping C0 control characters and DEL is the
+      // intended, security-relevant behavior here.
+      // eslint-disable-next-line no-control-regex
+      const normalizedUrl = rawUrl.replace(/[\u0000-\u001F\u007F\s]/g, '');
+      const schemeMatch = normalizedUrl.match(/^([a-z][a-z0-9+.-]*):/i);
+      if (
+        schemeMatch != null &&
+        !SUPPORTED_URL_PROTOCOLS.has(`${schemeMatch[1].toLowerCase()}:`)
+      ) {
+        // An explicit, non-allowlisted scheme survived normalization (e.g.
+        // `javascript:`, `data:`) — neutralize it. Inputs with no scheme
+        // (relative URLs such as `/path` or `#anchor`) or an allowlisted
+        // scheme are left unchanged: they cannot carry a dangerous scheme
+        // and are handled elsewhere.
+        return 'about:blank';
+      }
     }
     return url;
   }
@@ -282,8 +296,8 @@ export class LinkNode extends ElementNode {
     const focusNode = selection.focus.getNode();
 
     return (
-      this.isParentOf(anchorNode) &&
-      this.isParentOf(focusNode) &&
+      (this.is(anchorNode) || this.isParentOf(anchorNode)) &&
+      (this.is(focusNode) || this.isParentOf(focusNode)) &&
       selection.getTextContent().length > 0
     );
   }
@@ -363,9 +377,34 @@ export function $linkNodeTransform(link: LinkNode): void {
       });
     }
   }
+  // Fix a caret pair that points to the end of the absorbing link,
+  // which would shift when new children are appended during merge.
+  function $fixMergeBoundaryCaret(
+    pair: CaretPair,
+    absorbingLink: LinkNode,
+    mergingLink: LinkNode,
+  ): CaretPair {
+    const [next, prev] = pair;
+    const $isAffected = (caret: PointCaret) =>
+      $isSiblingCaret(caret) && caret.origin.is(absorbingLink);
+    if (!$isAffected(next) && !$isAffected(prev)) {
+      return pair;
+    }
+    // Resolve the merge boundary from the merging link's start, since
+    // those children survive the move and represent the boundary position.
+    const fixed = $normalizeCaret($getChildCaret(mergingLink, 'next'));
+    return [fixed, fixed.getFlipped()];
+  }
+
   if (link.isAttached()) {
     const prevSibling = link.getPreviousSibling();
     if ($isLinkNode(prevSibling) && prevSibling.shouldMergeAdjacentLink(link)) {
+      if (anchorPair) {
+        anchorPair = $fixMergeBoundaryCaret(anchorPair, prevSibling, link);
+      }
+      if (focusPair) {
+        focusPair = $fixMergeBoundaryCaret(focusPair, prevSibling, link);
+      }
       prevSibling.append(...link.getChildren());
       link.remove();
       $restoreSelection();
@@ -373,6 +412,12 @@ export function $linkNodeTransform(link: LinkNode): void {
     }
     const nextSibling = link.getNextSibling();
     if ($isLinkNode(nextSibling) && link.shouldMergeAdjacentLink(nextSibling)) {
+      if (anchorPair) {
+        anchorPair = $fixMergeBoundaryCaret(anchorPair, link, nextSibling);
+      }
+      if (focusPair) {
+        focusPair = $fixMergeBoundaryCaret(focusPair, link, nextSibling);
+      }
       link.append(...nextSibling.getChildren());
       nextSibling.remove();
       transformed = true;
@@ -462,21 +507,8 @@ export class AutoLinkNode extends LinkNode {
     this.__isUnlinked = prevNode.__isUnlinked;
   }
 
-  static getType(): string {
-    return 'autolink';
-  }
-
-  static clone(node: AutoLinkNode): AutoLinkNode {
-    return new AutoLinkNode(
-      node.__url,
-      {
-        isUnlinked: node.__isUnlinked,
-        rel: node.__rel,
-        target: node.__target,
-        title: node.__title,
-      },
-      node.__key,
-    );
+  $config() {
+    return this.config('autolink', {extends: LinkNode});
   }
 
   shouldMergeAdjacentLink(_otherLink: LinkNode): boolean {
@@ -495,7 +527,7 @@ export class AutoLinkNode extends LinkNode {
 
   createDOM(config: EditorConfig): LinkHTMLElementType {
     if (this.__isUnlinked) {
-      return document.createElement('span');
+      return $getDocument().createElement('span');
     } else {
       return super.createDOM(config);
     }
@@ -512,21 +544,12 @@ export class AutoLinkNode extends LinkNode {
     );
   }
 
-  static importJSON(serializedNode: SerializedAutoLinkNode): AutoLinkNode {
-    return $createAutoLinkNode().updateFromJSON(serializedNode);
-  }
-
   updateFromJSON(
     serializedNode: LexicalUpdateJSON<SerializedAutoLinkNode>,
   ): this {
     return super
       .updateFromJSON(serializedNode)
       .setIsUnlinked(serializedNode.isUnlinked || false);
-  }
-
-  static importDOM(): null {
-    // TODO: Should link node should handle the import over autolink?
-    return null;
   }
 
   exportJSON(): SerializedAutoLinkNode {
@@ -578,7 +601,7 @@ export function $isAutoLinkNode(
 
 export const TOGGLE_LINK_COMMAND: LexicalCommand<
   string | ({url: string} & LinkAttributes) | null
-> = createCommand('TOGGLE_LINK_COMMAND');
+> = /* @__PURE__ */ createCommand('TOGGLE_LINK_COMMAND');
 
 function $getPointNode(point: Point, offset: number): LexicalNode | null {
   if (point.type === 'element') {
@@ -651,9 +674,7 @@ function $splitLinkAtSelection(
   extractedNodes: LexicalNode[],
 ): void {
   const extractedKeys = new Set(
-    extractedNodes
-      .filter((n) => parentLink.isParentOf(n))
-      .map((n) => n.getKey()),
+    extractedNodes.filter(n => parentLink.isParentOf(n)).map(n => n.getKey()),
   );
 
   const allChildren = parentLink.getChildren();
@@ -663,13 +684,13 @@ function $splitLinkAtSelection(
     extractedKeys.has(child.getKey()) ||
     ($isElementNode(child) &&
       extractedNodes.some(
-        (n) => parentLink.isParentOf(n) && child.isParentOf(n),
+        n => parentLink.isParentOf(n) && child.isParentOf(n),
       ));
 
   const extractedChildren = allChildren.filter(isExtractedChild);
 
   if (extractedChildren.length === allChildren.length) {
-    allChildren.forEach((child) => parentLink.insertBefore(child));
+    allChildren.forEach(child => parentLink.insertBefore(child));
     parentLink.remove();
     return;
   }
@@ -681,7 +702,7 @@ function $splitLinkAtSelection(
   const isAtEnd = lastExtractedIndex === allChildren.length - 1;
 
   if (isAtStart) {
-    extractedChildren.forEach((child) => parentLink.insertBefore(child));
+    extractedChildren.forEach(child => parentLink.insertBefore(child));
   } else if (isAtEnd) {
     for (let i = extractedChildren.length - 1; i >= 0; i--) {
       parentLink.insertAfter(extractedChildren[i]);
@@ -696,7 +717,7 @@ function $splitLinkAtSelection(
       const newLink = $copyNode(parentLink);
 
       extractedChildren[extractedChildren.length - 1].insertAfter(newLink);
-      trailingChildren.forEach((child) => newLink.append(child));
+      trailingChildren.forEach(child => newLink.append(child));
     }
   }
 }
@@ -737,7 +758,7 @@ export function $toggleLink(
     }
 
     // Handle all selected nodes
-    nodes.forEach((node) => {
+    nodes.forEach(node => {
       if (url === null) {
         // Remove link
         const linkParent = $findMatchingParent(
@@ -784,9 +805,13 @@ export function $toggleLink(
           !$isAutoLinkNode(parent) && $isLinkNode(parent),
       );
       if (parentLink !== null) {
-        parentLink.getChildren().forEach((child) => {
-          parentLink.insertBefore(child);
-        });
+        parentLink
+          .getParentOrThrow()
+          .splice(
+            parentLink.getIndexWithinParent(),
+            0,
+            parentLink.getChildren(),
+          );
         parentLink.remove();
       }
       return;
@@ -799,7 +824,7 @@ export function $toggleLink(
   if (url === null) {
     const processedLinks = new Set<NodeKey>();
 
-    nodes.forEach((node) => {
+    nodes.forEach(node => {
       const parentLink = $findMatchingParent(
         node,
         (parent): parent is LinkNode =>

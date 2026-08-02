@@ -6,9 +6,6 @@
  *
  */
 
-import type {LexicalEditorWithDispose, NodeKey} from 'lexical';
-import type {JSX} from 'react';
-
 import './StickyNode.css';
 
 import {useCollaborationContext} from '@lexical/react/LexicalCollaborationContext';
@@ -16,21 +13,27 @@ import {CollaborationPlugin} from '@lexical/react/LexicalCollaborationPlugin';
 import {useLexicalComposerContext} from '@lexical/react/LexicalComposerContext';
 import {LexicalExtensionEditorComposer} from '@lexical/react/LexicalExtensionEditorComposer';
 import {calculateZoomLevel} from '@lexical/utils';
-import {$getNodeByKey} from 'lexical';
+import {
+  $getNodeByKey,
+  type LexicalEditorWithDispose,
+  mergeRegister,
+  type NodeKey,
+  registerEventListener,
+} from 'lexical';
 import * as React from 'react';
-import {useEffect, useLayoutEffect, useRef} from 'react';
+import {type JSX, useEffect, useLayoutEffect, useRef} from 'react';
 
 import {createWebsocketProvider} from '../collaboration';
 import {$isStickyNode} from './StickyNode';
 
-type Positioning = {
+interface Positioning {
   isDragging: boolean;
   offsetX: number;
   offsetY: number;
-  rootElementRect: null | ClientRect;
+  rootElementRect: null | DOMRect;
   x: number;
   y: number;
-};
+}
 
 function positionSticky(
   stickyElem: HTMLElement,
@@ -82,7 +85,7 @@ export default function StickyComponent({
 
   useLayoutEffect(() => {
     const position = positioningRef.current;
-    const resizeObserver = new ResizeObserver((entries) => {
+    const resizeObserver = new ResizeObserver(entries => {
       for (let i = 0; i < entries.length; i++) {
         const entry = entries[i];
         const {target} = entry;
@@ -91,13 +94,6 @@ export default function StickyComponent({
         if (stickyContainer !== null) {
           positionSticky(stickyContainer, position);
         }
-      }
-    });
-
-    const removeRootListener = editor.registerRootListener((nextRootElem) => {
-      if (nextRootElem !== null) {
-        resizeObserver.observe(nextRootElem);
-        return () => resizeObserver.unobserve(nextRootElem);
       }
     });
 
@@ -110,12 +106,15 @@ export default function StickyComponent({
       }
     };
 
-    window.addEventListener('resize', handleWindowResize);
-
-    return () => {
-      window.removeEventListener('resize', handleWindowResize);
-      removeRootListener();
-    };
+    return mergeRegister(
+      editor.registerRootListener(nextRootElem => {
+        if (nextRootElem !== null) {
+          resizeObserver.observe(nextRootElem);
+          return () => resizeObserver.unobserve(nextRootElem);
+        }
+      }),
+      registerEventListener(window, 'resize', handleWindowResize),
+    );
   }, [editor]);
 
   useEffect(() => {
@@ -189,7 +188,7 @@ export default function StickyComponent({
     <div ref={stickyContainerRef} className="sticky-note-container">
       <div
         className={`sticky-note ${color}`}
-        onPointerDown={(event) => {
+        onPointerDown={event => {
           const stickyContainer = stickyContainerRef.current;
           if (
             stickyContainer == null ||
@@ -233,6 +232,7 @@ export default function StickyComponent({
               id={caption.getKey()}
               providerFactory={createWebsocketProvider}
               shouldBootstrap={true}
+              selectionHighlight={true}
             />
           ) : null}
         </LexicalExtensionEditorComposer>

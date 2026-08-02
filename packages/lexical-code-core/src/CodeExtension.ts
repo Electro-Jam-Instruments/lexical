@@ -5,15 +5,77 @@
  * LICENSE file in the root directory of this source tree.
  *
  */
-import {defineExtension} from 'lexical';
+
+import {CoreImportExtension, DOMImportExtension} from '@lexical/html';
+import {
+  $getSelection,
+  $isRangeSelection,
+  COMMAND_PRIORITY_LOW,
+  configExtension,
+  defineExtension,
+  KEY_ENTER_COMMAND,
+  mergeRegister,
+  TabNode,
+} from 'lexical';
 
 import {CodeHighlightNode} from './CodeHighlightNode';
-import {CodeNode} from './CodeNode';
+import {
+  $installVscodeCodePasteOverlay,
+  CodeImportRules,
+} from './CodeImportExtension';
+import {$exitCodeNodeOnEnter, $isCodeNode, CodeNode} from './CodeNode';
 
 /**
  * Add code blocks to the editor (syntax highlighting provided separately)
  */
-export const CodeExtension = defineExtension({
+export const CodeExtension = /* @__PURE__ */ defineExtension({
+  dependencies: [
+    // DOMImportExtension support for the nodes registered here. Inert
+    // unless the editor routes HTML through the pipeline (e.g. via
+    // ClipboardDOMImportExtension or $generateNodesFromDOMViaExtension).
+    CoreImportExtension,
+    /* @__PURE__ */ configExtension(DOMImportExtension, {
+      preprocess: [$installVscodeCodePasteOverlay],
+      rules: CodeImportRules,
+    }),
+  ],
   name: '@lexical/code',
   nodes: () => [CodeNode, CodeHighlightNode],
+  register(editor) {
+    return mergeRegister(
+      editor.registerCommand(
+        KEY_ENTER_COMMAND,
+        event => {
+          const selection = $getSelection();
+          if ($isRangeSelection(selection) && $exitCodeNodeOnEnter(selection)) {
+            if (event !== null) {
+              event.preventDefault();
+            }
+            return true;
+          }
+          return false;
+        },
+        COMMAND_PRIORITY_LOW,
+      ),
+      editor.registerNodeTransform(TabNode, node => {
+        if (node.getFormat() !== 0 && $isCodeNode(node.getParent())) {
+          node.setFormat(0);
+        }
+      }),
+    );
+  },
+});
+
+/**
+ * Bundles {@link CodeImportRules} together with the runtime
+ * {@link CodeExtension}.
+ *
+ * @experimental
+ * @deprecated {@link CodeExtension} now registers
+ * {@link CodeImportRules} (and `CoreImportExtension`) itself — depend on
+ * it directly instead.
+ */
+export const CodeImportExtension = /* @__PURE__ */ defineExtension({
+  dependencies: [CodeExtension],
+  name: '@lexical/code/Import',
 });

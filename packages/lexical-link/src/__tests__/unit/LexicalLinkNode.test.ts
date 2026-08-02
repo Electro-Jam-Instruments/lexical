@@ -8,13 +8,14 @@
 
 import {buildEditorFromExtensions, defineExtension} from '@lexical/extension';
 import {
+  $createAutoLinkNode,
   $createLinkNode,
   $isLinkNode,
   $toggleLink,
   formatUrl,
   LinkExtension,
-  LinkNode,
-  SerializedLinkNode,
+  type LinkNode,
+  type SerializedLinkNode,
 } from '@lexical/link';
 import {$createMarkNode, $isMarkNode} from '@lexical/mark';
 import {
@@ -23,6 +24,7 @@ import {
   RichTextExtension,
 } from '@lexical/rich-text';
 import {
+  $cloneWithProperties,
   $createLineBreakNode,
   $createParagraphNode,
   $createRangeSelection,
@@ -36,11 +38,12 @@ import {
   $isTextNode,
   $selectAll,
   $setSelection,
-  ParagraphNode,
-  RangeSelection,
-  SerializedParagraphNode,
+  type ParagraphNode,
+  type RangeSelection,
+  type SerializedParagraphNode,
+  type TextNode,
 } from 'lexical';
-import {initializeUnitTest} from 'lexical/src/__tests__/utils';
+import {$assertNodeType, initializeUnitTest} from 'lexical/src/__tests__/utils';
 import {assert, describe, expect, it, test} from 'vitest';
 
 const editorConfig = Object.freeze({
@@ -60,7 +63,7 @@ const editorConfig = Object.freeze({
 });
 
 describe('LexicalLinkNode tests', () => {
-  initializeUnitTest((testEnv) => {
+  initializeUnitTest(testEnv => {
     test('LinkNode.constructor', async () => {
       const {editor} = testEnv;
 
@@ -80,7 +83,7 @@ describe('LexicalLinkNode tests', () => {
       await editor.update(() => {
         const linkNode = $createLinkNode('/');
 
-        const linkNodeClone = LinkNode.clone(linkNode);
+        const linkNodeClone = $cloneWithProperties(linkNode);
 
         expect(linkNodeClone).not.toBe(linkNode);
         expect(linkNodeClone).toStrictEqual(linkNode);
@@ -251,6 +254,48 @@ describe('LexicalLinkNode tests', () => {
       });
     });
 
+    test('LinkNode.createDOM() fails closed on unparseable URLs', async () => {
+      const {editor} = testEnv;
+
+      await editor.update(() => {
+        // A `javascript:` URL crafted so that `new URL()` throws (invalid
+        // port). Previously `sanitizeUrl()` failed open and returned the
+        // attacker-controlled value unchanged; some browsers will still
+        // navigate it, allowing XSS. It must now be neutralized to
+        // about:blank.
+        const linkNode = $createLinkNode(
+          // eslint-disable-next-line no-script-url
+          'javascript://:99999999999/%0aalert(document.domain)',
+        );
+        expect(linkNode.createDOM(editorConfig).outerHTML).toBe(
+          '<a href="about:blank" class="my-link-class"></a>',
+        );
+      });
+    });
+
+    test.each([
+      // Control-character- and whitespace-obfuscated `javascript:` URLs that
+      // throw in `new URL()` but are still navigated by some browsers. The
+      // scheme must be recognized after normalization and neutralized.
+      'java\u0000script:alert(document.domain)',
+      'java\tscript:alert(document.domain)',
+      '\u0001javascript:alert(document.domain)',
+      'java\nscript:alert(document.domain)',
+      'data:text/html,<script>alert(1)</script>',
+    ])(
+      'LinkNode.createDOM() neutralizes obfuscated dangerous scheme %j',
+      async input => {
+        const {editor} = testEnv;
+
+        await editor.update(() => {
+          const linkNode = $createLinkNode(input);
+          expect(linkNode.createDOM(editorConfig).outerHTML).toBe(
+            '<a href="about:blank" class="my-link-class"></a>',
+          );
+        });
+      },
+    );
+
     describe('LinkNode.createDOM() formats URLs', () => {
       [
         {input: 'https://example.com', output: 'https://example.com'},
@@ -265,7 +310,6 @@ describe('LexicalLinkNode tests', () => {
           const {editor} = testEnv;
 
           await editor.update(() => {
-            // eslint-disable-next-line no-script-url
             const linkNode = $createLinkNode(input);
             expect(linkNode.createDOM(editorConfig).outerHTML).toBe(
               `<a href="${output}" class="my-link-class"></a>`,
@@ -490,7 +534,10 @@ describe('LexicalLinkNode tests', () => {
       });
 
       editor.read(() => {
-        const paragraph = $getRoot().getFirstChild() as ParagraphNode;
+        const paragraph = $assertNodeType(
+          $getRoot().getFirstChild(),
+          $isParagraphNode,
+        );
         const [textNode, linkNode] = paragraph.getChildren();
 
         // Check first text node
@@ -519,7 +566,10 @@ describe('LexicalLinkNode tests', () => {
 
       // Verify structure after link removal
       editor.read(() => {
-        const paragraph = $getRoot().getFirstChild() as ParagraphNode;
+        const paragraph = $assertNodeType(
+          $getRoot().getFirstChild(),
+          $isParagraphNode,
+        );
         const [textNode, markNode] = paragraph.getChildren();
 
         // Check text node remains unchanged
@@ -552,7 +602,10 @@ describe('LexicalLinkNode tests', () => {
 
       // Verify initial structure: paragraph > link > heading > text
       editor.read(() => {
-        const paragraph = $getRoot().getFirstChild() as ParagraphNode;
+        const paragraph = $assertNodeType(
+          $getRoot().getFirstChild(),
+          $isParagraphNode,
+        );
         const linkNode = paragraph.getFirstChild();
 
         expect($isLinkNode(linkNode)).toBe(true);
@@ -572,7 +625,10 @@ describe('LexicalLinkNode tests', () => {
 
       // Verify structure after link removal: paragraph > heading > text
       editor.read(() => {
-        const paragraph = $getRoot().getFirstChild() as ParagraphNode;
+        const paragraph = $assertNodeType(
+          $getRoot().getFirstChild(),
+          $isParagraphNode,
+        );
         const children = paragraph.getChildren();
 
         // Link should be removed, heading should be moved up to paragraph level
@@ -601,7 +657,10 @@ describe('LexicalLinkNode tests', () => {
       });
 
       editor.read(() => {
-        const paragraph = $getRoot().getFirstChild() as ParagraphNode;
+        const paragraph = $assertNodeType(
+          $getRoot().getFirstChild(),
+          $isParagraphNode,
+        );
         const [precedingText, linkNode] = paragraph.getChildren();
 
         // Check first text node
@@ -613,7 +672,7 @@ describe('LexicalLinkNode tests', () => {
           expect(linkNode.getURL()).toBe('https://example.com/foo');
           expect(linkNode.getRel()).toBe('noreferrer');
           expect(
-            linkNode.getChildren().map((node) => node.getTextContent()),
+            linkNode.getChildren().map(node => node.getTextContent()),
           ).toEqual(['text', '\n']);
           expect($getSelection()).toMatchObject({
             anchor: {
@@ -633,9 +692,12 @@ describe('LexicalLinkNode tests', () => {
 
       // Verify structure after link removal
       editor.read(() => {
-        const paragraph = $getRoot().getFirstChild() as ParagraphNode;
+        const paragraph = $assertNodeType(
+          $getRoot().getFirstChild(),
+          $isParagraphNode,
+        );
         const children = paragraph.getChildren();
-        expect(children.map((node) => node.getTextContent())).toEqual([
+        expect(children.map(node => node.getTextContent())).toEqual([
           'some text',
           '\n',
         ]);
@@ -662,7 +724,10 @@ describe('LexicalLinkNode tests', () => {
 
       // Verify initial structure
       editor.read(() => {
-        const paragraph = $getRoot().getFirstChild() as ParagraphNode;
+        const paragraph = $assertNodeType(
+          $getRoot().getFirstChild(),
+          $isParagraphNode,
+        );
         const linkNode = paragraph.getFirstChild();
         expect($isLinkNode(linkNode)).toBe(true);
         if ($isLinkNode(linkNode)) {
@@ -681,7 +746,10 @@ describe('LexicalLinkNode tests', () => {
 
       // Verify that the link was removed only from the space
       editor.read(() => {
-        const paragraph = $getRoot().getFirstChild() as ParagraphNode;
+        const paragraph = $assertNodeType(
+          $getRoot().getFirstChild(),
+          $isParagraphNode,
+        );
         const children = paragraph.getChildren();
 
         // Should have two children: linkNode with 'hello' and a text node with ' '
@@ -721,7 +789,10 @@ describe('LexicalLinkNode tests', () => {
 
       // Verify initial structure
       editor.read(() => {
-        const paragraph = $getRoot().getFirstChild() as ParagraphNode;
+        const paragraph = $assertNodeType(
+          $getRoot().getFirstChild(),
+          $isParagraphNode,
+        );
         const linkNode = paragraph.getFirstChild();
         expect($isLinkNode(linkNode)).toBe(true);
         if ($isLinkNode(linkNode)) {
@@ -740,7 +811,10 @@ describe('LexicalLinkNode tests', () => {
 
       // Verify that the link was removed only from the space
       editor.read(() => {
-        const paragraph = $getRoot().getFirstChild() as ParagraphNode;
+        const paragraph = $assertNodeType(
+          $getRoot().getFirstChild(),
+          $isParagraphNode,
+        );
         const children = paragraph.getChildren();
 
         // Should have two children: a text node with ' ' and linkNode with 'hello'
@@ -780,7 +854,10 @@ describe('LexicalLinkNode tests', () => {
 
       // Verify initial structure
       editor.read(() => {
-        const paragraph = $getRoot().getFirstChild() as ParagraphNode;
+        const paragraph = $assertNodeType(
+          $getRoot().getFirstChild(),
+          $isParagraphNode,
+        );
         const linkNode = paragraph.getFirstChild();
         expect($isLinkNode(linkNode)).toBe(true);
         if ($isLinkNode(linkNode)) {
@@ -799,7 +876,10 @@ describe('LexicalLinkNode tests', () => {
 
       // Verify that the link was removed only from 'hello'
       editor.read(() => {
-        const paragraph = $getRoot().getFirstChild() as ParagraphNode;
+        const paragraph = $assertNodeType(
+          $getRoot().getFirstChild(),
+          $isParagraphNode,
+        );
         const children = paragraph.getChildren();
 
         // Should have three children: link with ' ', text with 'hello', link with ' '
@@ -850,7 +930,7 @@ describe('LexicalLinkNode tests', () => {
 
         const children = p.getChildren();
         expect(children.length).toBe(3);
-        children.forEach((child) => expect($isTextNode(child)).toBe(true));
+        children.forEach(child => expect($isTextNode(child)).toBe(true));
       });
     });
   });
@@ -899,7 +979,7 @@ describe('LinkNode transform (Regression #8083)', () => {
   });
 
   test('extracts block child (HeadingNode) from link', () => {
-    const editor = buildEditorFromExtensions(transformExtension);
+    using editor = buildEditorFromExtensions(transformExtension);
     let textKey: string;
     editor.update(
       () => {
@@ -939,7 +1019,7 @@ describe('LinkNode transform (Regression #8083)', () => {
   });
 
   test('extracts block child (ParagraphNode) from link', () => {
-    const editor = buildEditorFromExtensions(transformExtension);
+    using editor = buildEditorFromExtensions(transformExtension);
     let textKey: string;
     editor.update(
       () => {
@@ -982,7 +1062,7 @@ describe('LinkNode transform (Regression #8083)', () => {
   });
 
   test('handles siblings after block child', () => {
-    const editor = buildEditorFromExtensions(transformExtension);
+    using editor = buildEditorFromExtensions(transformExtension);
     let afterTextKey: string;
     editor.update(
       () => {
@@ -1036,7 +1116,7 @@ describe('LinkNode transform (Regression #8083)', () => {
   });
 
   test('fixes element selection in paragraph split to the right of LinkNode', () => {
-    const editor = buildEditorFromExtensions(transformExtension);
+    using editor = buildEditorFromExtensions(transformExtension);
     let afterTextKey: string;
     editor.update(
       () => {
@@ -1073,7 +1153,7 @@ describe('LinkNode transform (Regression #8083)', () => {
   });
 
   test('fixes element selection in LinkNode to the right of non-inline node', () => {
-    const editor = buildEditorFromExtensions(transformExtension);
+    using editor = buildEditorFromExtensions(transformExtension);
     let afterTextKey: string;
     editor.update(
       () => {
@@ -1118,7 +1198,7 @@ describe('LinkNode transform (Regression #8083)', () => {
   });
 
   test('fixes element selection with multiple non-inline siblings', () => {
-    const editor = buildEditorFromExtensions(transformExtension);
+    using editor = buildEditorFromExtensions(transformExtension);
     let heading2TextKey: string;
     editor.update(
       () => {
@@ -1161,7 +1241,7 @@ describe('LinkNode transform (Regression #8083)', () => {
   });
 
   test('fixes element selection when no siblings to the right of LinkNode', () => {
-    const editor = buildEditorFromExtensions(transformExtension);
+    using editor = buildEditorFromExtensions(transformExtension);
     editor.update(
       () => {
         const root = $getRoot();
@@ -1195,7 +1275,7 @@ describe('LinkNode transform (Regression #8083)', () => {
   });
 
   test('selection in paragraph right of link with trailing text in link', () => {
-    const editor = buildEditorFromExtensions(transformExtension);
+    using editor = buildEditorFromExtensions(transformExtension);
     let afterTextKey: string;
     editor.update(
       () => {
@@ -1232,7 +1312,7 @@ describe('LinkNode transform (Regression #8083)', () => {
   });
 
   test('selection at end of link with heading only child', () => {
-    const editor = buildEditorFromExtensions(transformExtension);
+    using editor = buildEditorFromExtensions(transformExtension);
     let headingTextKey: string;
     editor.update(
       () => {
@@ -1267,24 +1347,297 @@ describe('LinkNode transform (Regression #8083)', () => {
     });
   });
 
-  test('an empty link is not deleted if the transformation did not occur', () => {
-    const editor = buildEditorFromExtensions(transformExtension);
-    let linkKey: string;
+  // Regression #8305: All five visually-equivalent cursor positions at the
+  // boundary between two adjacent identical links must resolve to the merge
+  // boundary (textA at offset 5) after the links merge.
+  type MergeScenarioNodes = {
+    linkA: LinkNode;
+    linkB: LinkNode;
+    paragraph: ParagraphNode;
+    textA: TextNode;
+    textB: TextNode;
+  };
+  const mergeBoundaryScenarios: [
+    string,
+    ($nodes: MergeScenarioNodes) => void,
+  ][] = [
+    ['text point at end of first link text', ({textA}) => textA.select(5, 5)],
+    [
+      'text point at start of second link text',
+      ({textB}) => textB.select(0, 0),
+    ],
+    [
+      'element point at last child of first link',
+      ({linkA}) => linkA.select(1, 1),
+    ],
+    [
+      'element point between the two links',
+      ({paragraph}) => paragraph.select(1, 1),
+    ],
+    [
+      'element point at first child of second link',
+      ({linkB}) => linkB.select(0, 0),
+    ],
+  ];
+
+  test.each(mergeBoundaryScenarios)(
+    '#8305 cursor at merge boundary: %s',
+    (_desc, $setSelectionAtBoundary) => {
+      using editor = buildEditorFromExtensions(transformExtension);
+      let textAKey: string;
+      editor.update(
+        () => {
+          const textA = $createTextNode('link1');
+          textAKey = textA.getKey();
+          const textB = $createTextNode('link2');
+          const linkA = $createLinkNode('https://lexical.dev').append(textA);
+          const linkB = $createLinkNode('https://lexical.dev').append(textB);
+          const paragraph = $createParagraphNode().append(linkA, linkB);
+          $getRoot().clear().append(paragraph);
+          $setSelectionAtBoundary({linkA, linkB, paragraph, textA, textB});
+        },
+        {discrete: true},
+      );
+      editor.read(() => {
+        const paragraph = $getRoot().getFirstChild();
+        assert($isParagraphNode(paragraph), 'Expected ParagraphNode');
+        expect(paragraph.getChildrenSize()).toBe(1);
+        const mergedLink = paragraph.getFirstChild();
+        assert($isLinkNode(mergedLink), 'Expected LinkNode');
+        expect(mergedLink.getTextContent()).toBe('link1link2');
+        const selection = $getSelection();
+        assert($isRangeSelection(selection), 'Expected RangeSelection');
+        expect(selection.isCollapsed()).toBe(true);
+        expect(selection.anchor.type).toBe('text');
+        expect(selection.anchor.key).toBe(textAKey);
+        expect(selection.anchor.offset).toBe(5);
+      });
+    },
+  );
+
+  test('#8305 edge case: second link starts with LineBreakNode', () => {
+    using editor = buildEditorFromExtensions(transformExtension);
+    let textAKey: string;
     editor.update(
       () => {
-        const root = $getRoot();
-        const link = $createLinkNode('https://lexical.dev');
-        linkKey = link.getKey();
-        const paragraph = $createParagraphNode();
-        paragraph.append(link);
-        root.clear().append(paragraph);
-        link.select();
+        const textA = $createTextNode('link1');
+        textAKey = textA.getKey();
+        const paragraph = $createParagraphNode().append(
+          $createLinkNode('https://lexical.dev').append(textA),
+          $createLinkNode('https://lexical.dev').append(
+            $createLineBreakNode(),
+            $createTextNode('link2'),
+          ),
+        );
+        $getRoot().clear().append(paragraph);
+        paragraph.select(1, 1);
       },
       {discrete: true},
     );
     editor.read(() => {
-      const linkNode = $getNodeByKey(linkKey);
-      expect(linkNode).not.toBe(null);
+      const paragraph = $getRoot().getFirstChild();
+      assert($isParagraphNode(paragraph), 'Expected ParagraphNode');
+      expect(paragraph.getChildrenSize()).toBe(1);
+      const mergedLink = paragraph.getFirstChild();
+      assert($isLinkNode(mergedLink), 'Expected LinkNode');
+      const selection = $getSelection();
+      assert($isRangeSelection(selection), 'Expected RangeSelection');
+      expect(selection.isCollapsed()).toBe(true);
+      expect(selection.anchor.type).toBe('text');
+      expect(selection.anchor.key).toBe(textAKey);
+      expect(selection.anchor.offset).toBe(5);
+    });
+  });
+
+  test('#8305 edge case: first link ends with LineBreakNode', () => {
+    using editor = buildEditorFromExtensions(transformExtension);
+    editor.update(
+      () => {
+        const paragraph = $createParagraphNode().append(
+          $createLinkNode('https://lexical.dev').append(
+            $createTextNode('link1'),
+            $createLineBreakNode(),
+          ),
+          $createLinkNode('https://lexical.dev').append(
+            $createTextNode('link2'),
+          ),
+        );
+        $getRoot().clear().append(paragraph);
+        paragraph.select(1, 1);
+      },
+      {discrete: true},
+    );
+    editor.read(() => {
+      const paragraph = $getRoot().getFirstChild();
+      assert($isParagraphNode(paragraph), 'Expected ParagraphNode');
+      expect(paragraph.getChildrenSize()).toBe(1);
+      const mergedLink = paragraph.getFirstChild();
+      assert($isLinkNode(mergedLink), 'Expected LinkNode');
+      const selection = $getSelection();
+      assert($isRangeSelection(selection), 'Expected RangeSelection');
+      expect(selection.isCollapsed()).toBe(true);
+      expect(selection.anchor.type).toBe('text');
+      expect(selection.anchor.offset).toBe(0);
+    });
+  });
+});
+
+describe('LinkNode.extractWithChild (Issue #5046 — preserve link wrap across browsers)', () => {
+  initializeUnitTest(testEnv => {
+    function $setupLinkInParagraph() {
+      const root = $getRoot();
+      const paragraph = $createParagraphNode();
+      const linkNode = $createLinkNode('https://example.com');
+      const textNode = $createTextNode('hello link');
+      linkNode.append(textNode);
+      paragraph.append(linkNode);
+      root.append(paragraph);
+      return {linkNode, paragraph, textNode};
+    }
+
+    test('Chrome-like — anchor/focus both on inner TextNode', () => {
+      const {editor} = testEnv;
+      editor.update(
+        () => {
+          const {linkNode, textNode} = $setupLinkInParagraph();
+          const selection = textNode.select(0, 10);
+          expect(linkNode.extractWithChild(textNode, selection, 'clone')).toBe(
+            true,
+          );
+        },
+        {discrete: true},
+      );
+    });
+
+    test('Firefox-like — anchor/focus both on LinkNode itself (element point)', () => {
+      const {editor} = testEnv;
+      editor.update(
+        () => {
+          const {linkNode, textNode} = $setupLinkInParagraph();
+          // 0,1 (asymmetric offsets) keeps select() in the element-point
+          // branch — 0,0 / undefined,undefined would redirect into the
+          // first/last child because LinkNode.canBeEmpty() is false.
+          const selection = linkNode.select(0, 1);
+          expect(linkNode.extractWithChild(textNode, selection, 'clone')).toBe(
+            true,
+          );
+        },
+        {discrete: true},
+      );
+    });
+
+    test('Safari-like — asymmetric (anchor on LinkNode, focus on inner TextNode)', () => {
+      const {editor} = testEnv;
+      editor.update(
+        () => {
+          const {linkNode, textNode} = $setupLinkInParagraph();
+          const selection = linkNode.select(0, 1);
+          selection.focus.set(textNode.getKey(), 10, 'text');
+          expect(linkNode.extractWithChild(textNode, selection, 'clone')).toBe(
+            true,
+          );
+        },
+        {discrete: true},
+      );
+    });
+
+    test('selection entirely outside the link returns false', () => {
+      const {editor} = testEnv;
+      editor.update(
+        () => {
+          const root = $getRoot();
+          const paragraph = $createParagraphNode();
+          const linkNode = $createLinkNode('https://example.com');
+          const textNode = $createTextNode('hello link');
+          linkNode.append(textNode);
+          const outsideText = $createTextNode('outside');
+          paragraph.append(linkNode);
+          paragraph.append(outsideText);
+          root.append(paragraph);
+          const selection = outsideText.select(0, 7);
+          expect(linkNode.extractWithChild(textNode, selection, 'clone')).toBe(
+            false,
+          );
+        },
+        {discrete: true},
+      );
+    });
+
+    test('collapsed (zero-length) selection inside the link returns false', () => {
+      const {editor} = testEnv;
+      editor.update(
+        () => {
+          const {linkNode, textNode} = $setupLinkInParagraph();
+          const selection = textNode.select(5, 5);
+          expect(linkNode.extractWithChild(textNode, selection, 'clone')).toBe(
+            false,
+          );
+        },
+        {discrete: true},
+      );
+    });
+
+    test('AutoLinkNode (LinkNode subclass) inherits the Firefox-like fix', () => {
+      const {editor} = testEnv;
+      editor.update(
+        () => {
+          const root = $getRoot();
+          const paragraph = $createParagraphNode();
+          const autoLink = $createAutoLinkNode('https://example.com');
+          const textNode = $createTextNode('https://example.com');
+          autoLink.append(textNode);
+          paragraph.append(autoLink);
+          root.append(paragraph);
+          const selection = autoLink.select(0, 1);
+          expect(autoLink.extractWithChild(textNode, selection, 'clone')).toBe(
+            true,
+          );
+        },
+        {discrete: true},
+      );
+    });
+
+    test('partial text selection inside link with Firefox-like element anchor still preserves wrap', () => {
+      const {editor} = testEnv;
+      editor.update(
+        () => {
+          const {linkNode, textNode} = $setupLinkInParagraph();
+          // anchor on LinkNode (element), focus partway through inner text
+          const selection = linkNode.select(0, 1);
+          selection.focus.set(textNode.getKey(), 4, 'text');
+          expect(linkNode.extractWithChild(textNode, selection, 'clone')).toBe(
+            true,
+          );
+        },
+        {discrete: true},
+      );
+    });
+
+    test('selecting one of two adjacent links does not pull in the other', () => {
+      const {editor} = testEnv;
+      editor.update(
+        () => {
+          const root = $getRoot();
+          const paragraph = $createParagraphNode();
+          const link1 = $createLinkNode('https://first.example');
+          const text1 = $createTextNode('first');
+          link1.append(text1);
+          const between = $createTextNode(' and ');
+          const link2 = $createLinkNode('https://second.example');
+          const text2 = $createTextNode('second');
+          link2.append(text2);
+          paragraph.append(link1);
+          paragraph.append(between);
+          paragraph.append(link2);
+          root.append(paragraph);
+          // Firefox-like selection that wraps link1 entirely
+          const selection = link1.select(0, 1);
+          // link1 includes its own child, link2 does not
+          expect(link1.extractWithChild(text1, selection, 'clone')).toBe(true);
+          expect(link2.extractWithChild(text2, selection, 'clone')).toBe(false);
+        },
+        {discrete: true},
+      );
     });
   });
 });

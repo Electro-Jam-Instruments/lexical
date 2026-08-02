@@ -5,8 +5,6 @@
  * LICENSE file in the root directory of this source tree.
  *
  */
-import type {NodeKey} from 'lexical';
-import type {JSX} from 'react';
 
 import './index.css';
 
@@ -19,14 +17,24 @@ import {
   $getNodeByKey,
   $isParagraphNode,
   $isTextNode,
+  getComposedEventTarget,
+  type NodeKey,
+  registerEventListener,
 } from 'lexical';
-import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {
+  type JSX,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import * as ReactDOM from 'react-dom';
 
 import useModal from '../../hooks/useModal';
 import {
   ComponentPickerMenuItem,
-  ComponentPickerOption,
+  type ComponentPickerOption,
   getBaseOptions,
   getDynamicOptions,
 } from '../ComponentPickerPlugin';
@@ -76,9 +84,9 @@ export default function DraggableBlockPlugin({
     return [
       ...getDynamicOptions(editor, queryString),
       ...baseOptions.filter(
-        (option) =>
+        option =>
           regex.test(option.title) ||
-          option.keywords.some((keyword) => regex.test(keyword)),
+          option.keywords.some(keyword => regex.test(keyword)),
       ),
     ];
   }, [editor, queryString, showModal]);
@@ -93,7 +101,8 @@ export default function DraggableBlockPlugin({
     if (!isPickerOpen || !options.length) {
       return;
     }
-    setHighlightedIndex((current) =>
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setHighlightedIndex(current =>
       Math.min(current, Math.max(options.length - 1, 0)),
     );
   }, [isPickerOpen, options.length]);
@@ -103,7 +112,7 @@ export default function DraggableBlockPlugin({
       return;
     }
     const handleClickOutside = (event: MouseEvent) => {
-      const target = event.target as Node | null;
+      const target = getComposedEventTarget(event) as Node | null;
       if (
         (pickerRef.current && pickerRef.current.contains(target)) ||
         (menuRef.current && menuRef.current.contains(target))
@@ -113,10 +122,7 @@ export default function DraggableBlockPlugin({
       setIsPickerOpen(false);
       setPickerState(null);
     };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
+    return registerEventListener(document, 'mousedown', handleClickOutside);
   }, [isPickerOpen]);
 
   const selectOption = useCallback(
@@ -167,12 +173,12 @@ export default function DraggableBlockPlugin({
       }
       if (event.key === 'ArrowDown') {
         event.preventDefault();
-        setHighlightedIndex((index) =>
+        setHighlightedIndex(index =>
           index + 1 >= options.length ? 0 : index + 1,
         );
       } else if (event.key === 'ArrowUp') {
         event.preventDefault();
-        setHighlightedIndex((index) =>
+        setHighlightedIndex(index =>
           index - 1 < 0 ? options.length - 1 : index - 1,
         );
       } else if (event.key === 'Enter') {
@@ -187,10 +193,7 @@ export default function DraggableBlockPlugin({
         setPickerState(null);
       }
     };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-    };
+    return registerEventListener(window, 'keydown', handleKeyDown);
   }, [highlightedIndex, isPickerOpen, options, selectOption]);
 
   function openComponentPicker(e: React.MouseEvent) {
@@ -245,7 +248,7 @@ export default function DraggableBlockPlugin({
                 placeholder="Filter blocks..."
                 value={queryString}
                 ref={searchInputRef}
-                onChange={(event) => setQueryString(event.target.value)}
+                onChange={event => setQueryString(event.target.value)}
               />
               <ul>
                 {options.map((option, i: number) => (

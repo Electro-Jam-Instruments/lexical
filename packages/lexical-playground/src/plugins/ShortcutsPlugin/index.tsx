@@ -7,7 +7,6 @@
  */
 
 import {TOGGLE_LINK_COMMAND} from '@lexical/link';
-import {HeadingTagType} from '@lexical/rich-text';
 import {
   COMMAND_PRIORITY_NORMAL,
   FORMAT_ELEMENT_COMMAND,
@@ -15,10 +14,10 @@ import {
   INDENT_CONTENT_COMMAND,
   isModifierMatch,
   KEY_DOWN_COMMAND,
-  LexicalEditor,
+  type LexicalEditor,
   OUTDENT_CONTENT_COMMAND,
 } from 'lexical';
-import {Dispatch, useEffect} from 'react';
+import {type Dispatch, useEffect} from 'react';
 
 import {useToolbarState} from '../../context/ToolbarContext';
 import {sanitizeUrl} from '../../utils/url';
@@ -36,6 +35,7 @@ import {
   UpdateFontSizeType,
 } from '../ToolbarPlugin/utils';
 import {
+  getFormatHeading,
   isAddComment,
   isCapitalize,
   isCenterAlign,
@@ -44,7 +44,6 @@ import {
   isFormatBulletList,
   isFormatCheckList,
   isFormatCode,
-  isFormatHeading,
   isFormatNumberedList,
   isFormatParagraph,
   isFormatQuote,
@@ -77,12 +76,12 @@ export default function ShortcutsPlugin({
       // Short-circuit, a least one modifier must be set
       if (isModifierMatch(event, {})) {
         return false;
+      }
+      const headingSize = getFormatHeading(event);
+      if (headingSize) {
+        formatHeading(editor, toolbarState.blockType, headingSize);
       } else if (isFormatParagraph(event)) {
         formatParagraph(editor);
-      } else if (isFormatHeading(event)) {
-        const {code} = event;
-        const headingSize = `h${code[code.length - 1]}` as HeadingTagType;
-        formatHeading(editor, toolbarState.blockType, headingSize);
       } else if (isFormatBulletList(event)) {
         formatBulletList(editor, toolbarState.blockType);
       } else if (isFormatNumberedList(event)) {
@@ -102,9 +101,9 @@ export default function ShortcutsPlugin({
       } else if (isCapitalize(event)) {
         editor.dispatchCommand(FORMAT_TEXT_COMMAND, 'capitalize');
       } else if (isIndent(event)) {
-        editor.dispatchCommand(INDENT_CONTENT_COMMAND, undefined);
+        editor.dispatchCommand(INDENT_CONTENT_COMMAND);
       } else if (isOutdent(event)) {
-        editor.dispatchCommand(OUTDENT_CONTENT_COMMAND, undefined);
+        editor.dispatchCommand(OUTDENT_CONTENT_COMMAND);
       } else if (isCenterAlign(event)) {
         editor.dispatchCommand(FORMAT_ELEMENT_COMMAND, 'center');
       } else if (isLeftAlign(event)) {
@@ -138,7 +137,7 @@ export default function ShortcutsPlugin({
         setIsLinkEditMode(!toolbarState.isLink);
         editor.dispatchCommand(TOGGLE_LINK_COMMAND, url);
       } else if (isAddComment(event)) {
-        editor.dispatchCommand(INSERT_INLINE_COMMAND, undefined);
+        editor.dispatchCommand(INSERT_INLINE_COMMAND);
       } else {
         // No match for any of the event handlers
         return false;

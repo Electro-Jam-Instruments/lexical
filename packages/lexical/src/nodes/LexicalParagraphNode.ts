@@ -13,25 +13,27 @@ import type {
   Spread,
 } from '../LexicalEditor';
 import type {
-  DOMConversionMap,
   DOMConversionOutput,
   DOMExportOutput,
   LexicalNode,
 } from '../LexicalNode';
 import type {RangeSelection} from '../LexicalSelection';
-import type {
-  ElementFormatType,
-  SerializedElementNode,
-} from './LexicalElementNode';
 
 import {ELEMENT_TYPE_TO_FORMAT} from '../LexicalConstants';
 import {
   $applyNodeReplacement,
+  $getDocument,
+  $setDirectionFromDOM,
+  $setFormatFromDOM,
   getCachedClassNameArray,
   isHTMLElement,
   setNodeIndentFromDOM,
 } from '../LexicalUtils';
-import {ElementNode} from './LexicalElementNode';
+import {
+  type ElementFormatType,
+  ElementNode,
+  type SerializedElementNode,
+} from './LexicalElementNode';
 import {$isTextNode} from './LexicalTextNode';
 
 export type SerializedParagraphNode = Spread<
@@ -47,18 +49,22 @@ export class ParagraphNode extends ElementNode {
   /** @internal */
   declare ['constructor']: KlassConstructor<typeof ParagraphNode>;
 
-  static getType(): string {
-    return 'paragraph';
-  }
-
-  static clone(node: ParagraphNode): ParagraphNode {
-    return new ParagraphNode(node.__key);
+  $config() {
+    return this.config('paragraph', {
+      extends: ElementNode,
+      importDOM: {
+        p: () => ({
+          conversion: $convertParagraphElement,
+          priority: 0,
+        }),
+      },
+    });
   }
 
   // View
 
   createDOM(config: EditorConfig): HTMLElement {
-    const dom = document.createElement('p');
+    const dom = $getDocument().createElement('p');
     const classNames = getCachedClassNameArray(config.theme, 'paragraph');
     if (classNames !== undefined) {
       const domClassList = dom.classList;
@@ -74,21 +80,12 @@ export class ParagraphNode extends ElementNode {
     return false;
   }
 
-  static importDOM(): DOMConversionMap | null {
-    return {
-      p: (node: Node) => ({
-        conversion: $convertParagraphElement,
-        priority: 0,
-      }),
-    };
-  }
-
   exportDOM(editor: LexicalEditor): DOMExportOutput {
     const {element} = super.exportDOM(editor);
 
     if (isHTMLElement(element)) {
       if (this.isEmpty()) {
-        element.append(document.createElement('br'));
+        element.append($getDocument().createElement('br'));
       }
 
       const formatType = this.getFormatType();
@@ -100,10 +97,6 @@ export class ParagraphNode extends ElementNode {
     return {
       element,
     };
-  }
-
-  static importJSON(serializedNode: SerializedParagraphNode): ParagraphNode {
-    return $createParagraphNode().updateFromJSON(serializedNode);
   }
 
   exportJSON(): SerializedParagraphNode {
@@ -167,10 +160,8 @@ export class ParagraphNode extends ElementNode {
 
 function $convertParagraphElement(element: HTMLElement): DOMConversionOutput {
   const node = $createParagraphNode();
-  if (element.style) {
-    node.setFormat(element.style.textAlign as ElementFormatType);
-    setNodeIndentFromDOM(element, node);
-  }
+  $setFormatFromDOM(node, element);
+  setNodeIndentFromDOM(element, node);
 
   // Check legacy 'align' attribute
   // Only use this if no format was set by CSS
@@ -182,6 +173,7 @@ function $convertParagraphElement(element: HTMLElement): DOMConversionOutput {
       }
     }
   }
+  $setDirectionFromDOM(node, element);
   return {node};
 }
 

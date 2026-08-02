@@ -6,44 +6,49 @@
  *
  */
 
-import {
-  $descendantsMatching,
-  addClassNamesToElement,
-  isHTMLElement,
-  removeClassNamesFromElement,
-} from '@lexical/utils';
+import type {TableExtension} from './LexicalTableExtension';
+import type {TableDOMCell, TableDOMTable} from './LexicalTableObserver';
+
+import {getPeerDependencyFromEditor} from '@lexical/extension';
+import invariant from '@lexical/internal/invariant';
+import {$descendantsMatching} from '@lexical/utils';
 import {
   $applyNodeReplacement,
+  $getDocument,
   $getEditor,
   $getNearestNodeFromDOMNode,
-  BaseSelection,
-  DOMConversionMap,
-  DOMConversionOutput,
-  DOMExportOutput,
-  EditorConfig,
-  ElementDOMSlot,
+  addClassNamesToElement,
+  type BaseSelection,
+  type DOMConversionOutput,
+  type DOMExportOutput,
+  type EditorConfig,
+  type ElementDOMSlot,
   type ElementFormatType,
   ElementNode,
-  LexicalEditor,
-  LexicalNode,
-  LexicalUpdateJSON,
-  NodeKey,
-  SerializedElementNode,
+  isHTMLElement,
+  type LexicalEditor,
+  type LexicalNode,
+  type LexicalUpdateJSON,
+  type NodeKey,
+  removeClassNamesFromElement,
+  type SerializedElementNode,
+  setDOMStyleFromCSS,
   setDOMUnmanaged,
-  Spread,
+  type Spread,
 } from 'lexical';
-import invariant from 'shared/invariant';
 
 import {PIXEL_VALUE_REG_EXP} from './constants';
 import {$isTableCellNode, type TableCellNode} from './LexicalTableCellNode';
-import {TableDOMCell, TableDOMTable} from './LexicalTableObserver';
-import {$isTableRowNode, type TableRowNode} from './LexicalTableRowNode';
+import {$isTableRowNode} from './LexicalTableRowNode';
 import {
   $getNearestTableCellInTableFromDOMNode,
   getTable,
+  getTableElement,
   isHTMLTableElement,
 } from './LexicalTableSelectionHelpers';
 import {$computeTableMapSkipCellCheck} from './LexicalTableUtils';
+
+const __DEV__ = process.env.NODE_ENV !== 'production';
 
 function isHTMLDivElement(element: unknown): element is HTMLDivElement {
   return isHTMLElement(element) && element.nodeName === 'DIV';
@@ -59,19 +64,25 @@ export type SerializedTableNode = Spread<
   SerializedElementNode
 >;
 
-function updateColgroup(
+function $updateColgroup(
   dom: HTMLTableElement,
   colCount: number,
   colWidths?: number[] | readonly number[],
 ) {
-  const colGroup = dom.querySelector('colgroup');
-  if (!colGroup) {
+  let colGroup = dom.querySelector<HTMLElement>(':scope > colgroup');
+  if (!colWidths) {
+    if (colGroup) colGroup.remove();
     return;
+  }
+  if (!colGroup) {
+    colGroup = $getDocument().createElement('colgroup');
+    setDOMUnmanaged(colGroup);
+    dom.insertBefore(colGroup, dom.firstChild);
   }
   const cols = [];
   for (let i = 0; i < colCount; i++) {
-    const col = document.createElement('col');
-    const width = colWidths && colWidths[i];
+    const col = $getDocument().createElement('col');
+    const width = colWidths[i];
     if (width) {
       col.style.width = `${width}px`;
     }
@@ -145,12 +156,199 @@ function alignTableElement(
   addClassNamesToElement(dom, ...addClasses);
 }
 
+function $createScrollableWrapper(
+  tableElement: HTMLTableElement,
+  config: EditorConfig,
+  hideNativeScrollbar: boolean,
+): HTMLDivElement {
+  const wrapper = $getDocument().createElement('div');
+  const classes = config.theme.tableScrollableWrapper;
+  if (classes) {
+    addClassNamesToElement(wrapper, classes);
+  } else {
+    wrapper.style.overflowX = 'auto';
+  }
+  if (hideNativeScrollbar) {
+    wrapper.style.scrollbarWidth = 'none';
+  }
+  wrapper.appendChild(tableElement);
+  return wrapper;
+}
+
+function $createStickyScrollbar(config: EditorConfig): HTMLDivElement {
+  const doc = $getDocument();
+  const scrollbar = doc.createElement('div');
+  const classes = config.theme.tableStickyScrollbar;
+  if (classes) {
+    addClassNamesToElement(scrollbar, classes);
+  } else {
+    scrollbar.style.position = 'sticky';
+    scrollbar.style.bottom = '0';
+    scrollbar.style.overflowX = 'scroll';
+    scrollbar.style.overflowY = 'hidden';
+  }
+  scrollbar.style.display = 'none';
+  scrollbar.setAttribute('aria-hidden', 'true');
+  scrollbar.tabIndex = -1;
+  const spacer = doc.createElement('div');
+  spacer.style.height = '1px';
+  spacer.style.width = '0px';
+  scrollbar.appendChild(spacer);
+  return scrollbar;
+}
+
+export interface StickyScrollbarElements {
+  scrollable: HTMLDivElement;
+  scrollbar: HTMLDivElement;
+  tableElement: HTMLTableElement;
+}
+
+// Unthemed sticky scrollbars whose environment cannot render a persistent
+// proxy scrollbar (overlay scrollbars reserve no height and show no idle
+// thumb), permanently hidden in favor of the wrapper's native scrollbar.
+const overlayStickyScrollbars = new WeakSet<HTMLDivElement>();
+
+function measureScrollbarThickness(scrollbar: HTMLDivElement): number {
+  const prevDisplay = scrollbar.style.display;
+  scrollbar.style.display = '';
+  const thickness = scrollbar.offsetHeight - scrollbar.clientHeight;
+  scrollbar.style.display = prevDisplay;
+  return thickness;
+}
+
+export function attachStickyScrollbarListeners(
+  elements: StickyScrollbarElements,
+): () => void {
+  const {scrollable, scrollbar, tableElement} = elements;
+  // A themed scrollbar (theme.tableStickyScrollbar, detectable by its
+  // classes) is the integrator's responsibility to keep visible (e.g. via
+  // ::-webkit-scrollbar height or scrollbar-width). The unthemed fallback
+  // relies on classic native scrollbars for its height, so where the
+  // environment renders overlay scrollbars (no reserved thickness — e.g.
+  // macOS "show scrollbars when scrolling", or non-layout environments like
+  // jsdom) the proxy would be an invisible strip: keep it hidden and
+  // restore the wrapper's native scrollbar instead of presenting no scroll
+  // affordance at all.
+  if (
+    scrollbar.classList.length === 0 &&
+    measureScrollbarThickness(scrollbar) === 0
+  ) {
+    overlayStickyScrollbars.add(scrollbar);
+    scrollbar.style.display = 'none';
+    scrollable.style.scrollbarWidth = 'auto';
+    return () => {};
+  }
+  const onWrapperScroll = () => {
+    if (scrollbar.scrollLeft !== scrollable.scrollLeft) {
+      scrollbar.scrollLeft = scrollable.scrollLeft;
+    }
+  };
+  const onScrollbarScroll = () => {
+    if (scrollable.scrollLeft !== scrollbar.scrollLeft) {
+      scrollable.scrollLeft = scrollbar.scrollLeft;
+    }
+  };
+  scrollable.addEventListener('scroll', onWrapperScroll, {
+    passive: true,
+  });
+  scrollbar.addEventListener('scroll', onScrollbarScroll, {passive: true});
+  let resizeObserver: ResizeObserver | null = null;
+  if (typeof ResizeObserver !== 'undefined') {
+    resizeObserver = new ResizeObserver(() => {
+      syncStickyScrollbar(scrollable, scrollbar);
+    });
+    resizeObserver.observe(scrollable);
+    resizeObserver.observe(tableElement);
+  }
+  const cleanup = () => {
+    scrollable.removeEventListener('scroll', onWrapperScroll);
+    scrollbar.removeEventListener('scroll', onScrollbarScroll);
+    if (resizeObserver) {
+      resizeObserver.disconnect();
+    }
+  };
+  syncStickyScrollbar(scrollable, scrollbar);
+  return cleanup;
+}
+
+export function syncStickyScrollbar(
+  scrollable: HTMLDivElement,
+  scrollbar: HTMLDivElement,
+): void {
+  if (overlayStickyScrollbars.has(scrollbar)) {
+    return;
+  }
+  const spacer = scrollbar.firstElementChild;
+  if (!spacer || !isHTMLElement(spacer) || !scrollable.isConnected) {
+    return;
+  }
+  const view = scrollable.ownerDocument.defaultView;
+  if (!view) {
+    scrollbar.style.display = 'none';
+    return;
+  }
+  // All layout reads happen before any write so a sync forces at most one
+  // reflow, and both metrics come from the same element so their rounding
+  // can't disagree at fractional zoom levels.
+  const overflowX = view.getComputedStyle(scrollable).overflowX;
+  const isScrollable = overflowX === 'auto' || overflowX === 'scroll';
+  const scrollWidth = scrollable.scrollWidth;
+  const clientWidth = scrollable.clientWidth;
+  const spacerWidth = scrollWidth + 'px';
+  if (spacer.style.width !== spacerWidth) {
+    spacer.style.width = spacerWidth;
+  }
+  const hasOverflow = isScrollable && scrollWidth > clientWidth;
+  scrollbar.style.display = hasOverflow ? '' : 'none';
+}
+
+export function findStickyScrollbarElements(
+  dom: HTMLElement,
+): StickyScrollbarElements | null {
+  if (!dom.hasAttribute('data-lexical-sticky-scrollbar')) {
+    return null;
+  }
+  const firstChild = dom.firstElementChild;
+  if (!isHTMLDivElement(firstChild)) {
+    return null;
+  }
+  const tableElement = firstChild.querySelector(':scope > table');
+  if (!isHTMLTableElement(tableElement)) {
+    return null;
+  }
+  const scrollbar = firstChild.nextElementSibling;
+  if (!isHTMLDivElement(scrollbar)) {
+    return null;
+  }
+  return {
+    scrollable: firstChild,
+    scrollbar,
+    tableElement,
+  };
+}
+
 const scrollableEditors = new WeakSet<LexicalEditor>();
 
 export function $isScrollableTablesActive(
   editor: LexicalEditor = $getEditor(),
 ): boolean {
   return scrollableEditors.has(editor);
+}
+
+export function $isStickyScrollbarActive(
+  editor: LexicalEditor = $getEditor(),
+): boolean {
+  const dep = getPeerDependencyFromEditor<typeof TableExtension>(
+    editor,
+    '@lexical/table/Table',
+  );
+  // peek() so a reconcile that runs inside a signals effect (e.g. via a
+  // discrete update or force-commit read) does not subscribe that effect to
+  // the table config; re-rendering on change is the TableExtension's job.
+  return dep
+    ? dep.output.hasStickyScrollbar.peek() &&
+        dep.output.hasHorizontalScroll.peek()
+    : false;
 }
 
 export function setScrollableTablesActive(
@@ -172,13 +370,25 @@ export function setScrollableTablesActive(
 /** @noInheritDoc */
 export class TableNode extends ElementNode {
   /** @internal */
-  __rowStriping: boolean;
-  __frozenColumnCount: number;
-  __frozenRowCount: number;
-  __colWidths?: readonly number[];
+  __rowStriping: boolean = false;
+  __frozenColumnCount: number = 0;
+  __frozenRowCount: number = 0;
+  // Initialized unconditionally (not `__colWidths?: ...`) so a freshly
+  // constructed instance always has the own property — `@lexical/yjs` derives a
+  // node's syncable properties from `Object.keys(new Klass())`, so an
+  // uninitialized optional field would silently drop out of collab sync.
+  __colWidths: readonly number[] | undefined = undefined;
 
-  static getType(): string {
-    return 'table';
+  $config() {
+    return this.config('table', {
+      extends: ElementNode,
+      importDOM: {
+        table: () => ({
+          conversion: $convertTableElement,
+          priority: 1,
+        }),
+      },
+    });
   }
 
   getColWidths(): readonly number[] | undefined {
@@ -194,29 +404,12 @@ export class TableNode extends ElementNode {
     return self;
   }
 
-  static clone(node: TableNode): TableNode {
-    return new TableNode(node.__key);
-  }
-
   afterCloneFrom(prevNode: this) {
     super.afterCloneFrom(prevNode);
     this.__colWidths = prevNode.__colWidths;
     this.__rowStriping = prevNode.__rowStriping;
     this.__frozenColumnCount = prevNode.__frozenColumnCount;
     this.__frozenRowCount = prevNode.__frozenRowCount;
-  }
-
-  static importDOM(): DOMConversionMap | null {
-    return {
-      table: (_node: Node) => ({
-        conversion: $convertTableElement,
-        priority: 1,
-      }),
-    };
-  }
-
-  static importJSON(serializedNode: SerializedTableNode): TableNode {
-    return $createTableNode().updateFromJSON(serializedNode);
   }
 
   updateFromJSON(serializedNode: LexicalUpdateJSON<SerializedTableNode>): this {
@@ -226,14 +419,6 @@ export class TableNode extends ElementNode {
       .setFrozenColumns(serializedNode.frozenColumnCount || 0)
       .setFrozenRows(serializedNode.frozenRowCount || 0)
       .setColWidths(serializedNode.colWidths);
-  }
-
-  constructor(key?: NodeKey) {
-    super(key);
-    this.__rowStriping = false;
-    this.__frozenColumnCount = 0;
-    this.__frozenRowCount = 0;
-    this.__colWidths = undefined;
   }
 
   exportJSON(): SerializedTableNode {
@@ -267,30 +452,40 @@ export class TableNode extends ElementNode {
     return super
       .getDOMSlot(element)
       .withElement(tableElement)
-      .withAfter(tableElement.querySelector('colgroup'));
+      .withAfter(tableElement.querySelector(':scope > colgroup'));
   }
 
   createDOM(config: EditorConfig, editor?: LexicalEditor): HTMLElement {
-    const tableElement = document.createElement('table');
+    const tableElement = $getDocument().createElement('table');
     if (this.__style) {
-      tableElement.style.cssText = this.__style;
+      setDOMStyleFromCSS(tableElement.style, this.__style);
     }
-    const colGroup = document.createElement('colgroup');
-    tableElement.appendChild(colGroup);
-    setDOMUnmanaged(colGroup);
+    const colWidths = this.getColWidths();
+    if (colWidths) {
+      const colGroup = $getDocument().createElement('colgroup');
+      tableElement.appendChild(colGroup);
+      setDOMUnmanaged(colGroup);
+    }
     addClassNamesToElement(tableElement, config.theme.table);
     this.updateTableElement(null, tableElement, config);
     if ($isScrollableTablesActive(editor)) {
-      const wrapperElement = document.createElement('div');
-      const classes = config.theme.tableScrollableWrapper;
-      if (classes) {
-        addClassNamesToElement(wrapperElement, classes);
-      } else {
-        wrapperElement.style.cssText = 'overflow-x: auto;';
+      const hasStickyScrollbar = $isStickyScrollbarActive(editor);
+      const scrollableWrapper = $createScrollableWrapper(
+        tableElement,
+        config,
+        hasStickyScrollbar,
+      );
+      this.updateTableWrapper(null, scrollableWrapper, tableElement, config);
+      if (hasStickyScrollbar) {
+        const stickyScrollbar = $createStickyScrollbar(config);
+        const outerWrapper = $getDocument().createElement('div');
+        outerWrapper.setAttribute('data-lexical-sticky-scrollbar', 'true');
+        outerWrapper.appendChild(scrollableWrapper);
+        outerWrapper.appendChild(stickyScrollbar);
+        setDOMUnmanaged(stickyScrollbar);
+        return outerWrapper;
       }
-      wrapperElement.appendChild(tableElement);
-      this.updateTableWrapper(null, wrapperElement, tableElement, config);
-      return wrapperElement;
+      return scrollableWrapper;
     }
     return tableElement;
   }
@@ -322,7 +517,11 @@ export class TableNode extends ElementNode {
     config: EditorConfig,
   ): void {
     if (this.__style !== (prevNode ? prevNode.__style : '')) {
-      tableElement.style.cssText = this.__style;
+      setDOMStyleFromCSS(
+        tableElement.style,
+        this.__style,
+        prevNode ? prevNode.__style : '',
+      );
     }
     if (this.__rowStriping !== (prevNode ? prevNode.__rowStriping : false)) {
       setRowStriping(tableElement, config, this.__rowStriping);
@@ -333,19 +532,27 @@ export class TableNode extends ElementNode {
       this.getColumnCount() !== prevColCount ||
       this.getColWidths() !== prevColWidths
     ) {
-      updateColgroup(tableElement, this.getColumnCount(), this.getColWidths());
+      $updateColgroup(tableElement, this.getColumnCount(), this.getColWidths());
     }
     alignTableElement(tableElement, config, this.getFormatType());
   }
 
   updateDOM(prevNode: this, dom: HTMLElement, config: EditorConfig): boolean {
-    const slot = this.getDOMSlot(dom);
-    const tableElement = slot.element;
+    const tableElement = getTableElement(this, dom);
     if ((dom === tableElement) === $isScrollableTablesActive()) {
       return true;
     }
     if (isHTMLDivElement(dom)) {
-      this.updateTableWrapper(prevNode, dom, tableElement, config);
+      const hasStickyDom = dom.hasAttribute('data-lexical-sticky-scrollbar');
+      if (hasStickyDom !== $isStickyScrollbarActive()) {
+        return true;
+      }
+      // The scrollable wrapper is the table's immediate parent in both
+      // layouts (the inner div in sticky mode, dom itself otherwise).
+      const scrollable = tableElement.parentElement;
+      if (isHTMLDivElement(scrollable)) {
+        this.updateTableWrapper(prevNode, scrollable, tableElement, config);
+      }
     }
     this.updateTableElement(prevNode, tableElement, config);
     return false;
@@ -356,12 +563,11 @@ export class TableNode extends ElementNode {
     if (!colWidths) {
       return;
     }
-    const slot = this.getDOMSlot(dom);
-    const tableElement = slot.element;
-    updateColgroup(
+    const tableElement = getTableElement(this, dom);
+    $updateColgroup(
       tableElement,
       this.getColumnCount(),
-      colWidths.map((width) => width * scale),
+      colWidths.map(width => width * scale),
     );
   }
 
@@ -369,7 +575,7 @@ export class TableNode extends ElementNode {
     const superExport = super.exportDOM(editor);
     const {element} = superExport;
     return {
-      after: (tableElement) => {
+      after: tableElement => {
         if (superExport.after) {
           tableElement = superExport.after(tableElement);
         }
@@ -432,7 +638,7 @@ export class TableNode extends ElementNode {
         // Wrap direct descendant rows in a tbody for export
         const rows = tableElement.querySelectorAll(':scope > tr');
         if (rows.length > 0) {
-          const tBody = document.createElement('tbody');
+          const tBody = $getDocument().createElement('tbody');
           for (const row of rows) {
             tBody.appendChild(row);
           }
@@ -595,13 +801,13 @@ export class TableNode extends ElementNode {
   }
 
   getColumnCount(): number {
-    const firstRow = this.getFirstChild<TableRowNode>();
-    if (!firstRow) {
+    const firstRow = this.getFirstChild();
+    if (!$isTableRowNode(firstRow)) {
       return 0;
     }
 
     let columnCount = 0;
-    firstRow.getChildren().forEach((cell) => {
+    firstRow.getChildren().forEach(cell => {
       if ($isTableCellNode(cell)) {
         columnCount += cell.getColSpan();
       }
@@ -656,7 +862,7 @@ export function $convertTableElement(
     }
   }
   return {
-    after: (children) => $descendantsMatching(children, $isTableRowNode),
+    after: children => $descendantsMatching(children, $isTableRowNode),
     node: tableNode,
   };
 }

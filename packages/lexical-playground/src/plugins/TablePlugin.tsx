@@ -6,11 +6,10 @@
  *
  */
 
-import type {JSX} from 'react';
+import type {LexicalEditor} from 'lexical';
 
 import {INSERT_TABLE_COMMAND} from '@lexical/table';
-import {LexicalEditor} from 'lexical';
-import {useEffect, useState} from 'react';
+import {type JSX, useEffect, useState} from 'react';
 
 import Button from '../ui/Button';
 import {DialogActions} from '../ui/Dialog';
@@ -31,6 +30,7 @@ export function InsertTableDialog({
     const row = Number(rows);
     const column = Number(columns);
     if (row && row > 0 && row <= 500 && column && column > 0 && column <= 50) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setIsDisabled(false);
     } else {
       setIsDisabled(true);
@@ -49,6 +49,7 @@ export function InsertTableDialog({
   return (
     <>
       <TextInput
+        autoFocus={true}
         placeholder={'# of rows (1-500)'}
         label="Rows"
         onChange={setRows}

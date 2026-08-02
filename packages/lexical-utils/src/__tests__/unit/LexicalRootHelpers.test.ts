@@ -16,11 +16,11 @@ import {initializeUnitTest} from 'lexical/src/__tests__/utils';
 import {describe, expect, it} from 'vitest';
 
 describe('LexicalRootHelpers tests', () => {
-  initializeUnitTest((testEnv) => {
+  initializeUnitTest(testEnv => {
     it('textContent', async () => {
       const editor = testEnv.editor;
 
-      expect(editor.getEditorState().read($rootTextContent)).toBe('');
+      expect(editor.read('latest', $rootTextContent)).toBe('');
 
       await editor.update(() => {
         const root = $getRoot();
@@ -32,16 +32,17 @@ describe('LexicalRootHelpers tests', () => {
         expect($rootTextContent()).toBe('foo');
       });
 
-      expect(editor.getEditorState().read($rootTextContent)).toBe('foo');
+      expect(editor.read('latest', $rootTextContent)).toBe('foo');
     });
 
     it('isBlank', async () => {
       const editor = testEnv.editor;
 
       expect(
-        editor
-          .getEditorState()
-          .read($isRootTextContentEmptyCurry(editor.isComposing())),
+        editor.read(
+          'latest',
+          $isRootTextContentEmptyCurry(editor.isComposing()),
+        ),
       ).toBe(true);
 
       await editor.update(() => {
@@ -55,9 +56,10 @@ describe('LexicalRootHelpers tests', () => {
       });
 
       expect(
-        editor
-          .getEditorState()
-          .read($isRootTextContentEmptyCurry(editor.isComposing())),
+        editor.read(
+          'latest',
+          $isRootTextContentEmptyCurry(editor.isComposing()),
+        ),
       ).toBe(false);
     });
   });

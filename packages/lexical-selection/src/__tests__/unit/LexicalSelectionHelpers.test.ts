@@ -25,12 +25,12 @@ import {
   $isParagraphNode,
   $isRangeSelection,
   $setSelection,
-  ElementNode,
-  LexicalEditor,
-  LexicalNode,
-  ParagraphNode,
-  RangeSelection,
-  TextModeType,
+  type ElementNode,
+  type LexicalEditor,
+  type LexicalNode,
+  type ParagraphNode,
+  type RangeSelection,
+  type TextModeType,
   TextNode,
 } from 'lexical';
 import {
@@ -140,7 +140,7 @@ describe('LexicalSelectionHelpers tests', () => {
       });
 
       // getTextContent
-      setupTestCase((selection) => {
+      setupTestCase(selection => {
         expect(selection.getTextContent()).toEqual('');
       });
 
@@ -189,7 +189,7 @@ describe('LexicalSelectionHelpers tests', () => {
       });
 
       // insertParagraph
-      setupTestCase((selection) => {
+      setupTestCase(selection => {
         selection.insertParagraph();
 
         expect(selection.anchor).toEqual(
@@ -320,7 +320,7 @@ describe('LexicalSelectionHelpers tests', () => {
 
       await Promise.resolve().then();
 
-      editor.getEditorState().read(() => {
+      editor.read('latest', () => {
         const selection = $getSelection();
 
         if (!$isRangeSelection(selection)) {
@@ -396,7 +396,7 @@ describe('LexicalSelectionHelpers tests', () => {
 
       await Promise.resolve().then();
 
-      editor.getEditorState().read(() => {
+      editor.read('latest', () => {
         const selection = $getSelection();
 
         if (!$isRangeSelection(selection)) {
@@ -457,7 +457,7 @@ describe('LexicalSelectionHelpers tests', () => {
 
       await Promise.resolve().then();
 
-      editor.getEditorState().read(() => {
+      editor.read('latest', () => {
         const selection = $getSelection();
 
         if (!$isRangeSelection(selection)) {
@@ -523,7 +523,7 @@ describe('LexicalSelectionHelpers tests', () => {
 
       await Promise.resolve().then();
 
-      editor.getEditorState().read(() => {
+      editor.read('latest', () => {
         const selection = $getSelection();
 
         if (!$isRangeSelection(selection)) {
@@ -599,7 +599,7 @@ describe('LexicalSelectionHelpers tests', () => {
 
       await Promise.resolve().then();
 
-      editor.getEditorState().read(() => {
+      editor.read('latest', () => {
         const selection = $getSelection();
 
         if (!$isRangeSelection(selection)) {
@@ -675,7 +675,7 @@ describe('LexicalSelectionHelpers tests', () => {
 
       await Promise.resolve().then();
 
-      editor.getEditorState().read(() => {
+      editor.read('latest', () => {
         const selection = $getSelection();
 
         if (!$isRangeSelection(selection)) {
@@ -735,7 +735,7 @@ describe('LexicalSelectionHelpers tests', () => {
       });
 
       // getTextContent
-      setupTestCase((selection) => {
+      setupTestCase(selection => {
         expect(selection.getTextContent()).toEqual('');
       });
 
@@ -888,7 +888,7 @@ describe('LexicalSelectionHelpers tests', () => {
       });
 
       // getTextContent
-      setupTestCase((selection) => {
+      setupTestCase(selection => {
         expect(selection.getTextContent()).toEqual('');
       });
 
@@ -1041,7 +1041,7 @@ describe('LexicalSelectionHelpers tests', () => {
       });
 
       // getTextContent
-      setupTestCase((selection) => {
+      setupTestCase(selection => {
         expect(selection.getTextContent()).toEqual('');
       });
 
@@ -1189,7 +1189,7 @@ describe('LexicalSelectionHelpers tests', () => {
 
       await Promise.resolve().then();
 
-      editor.getEditorState().read(() => {
+      editor.read('latest', () => {
         const selection = $getSelection();
 
         if (!$isRangeSelection(selection)) {
@@ -1260,7 +1260,7 @@ describe('LexicalSelectionHelpers tests', () => {
 
       await Promise.resolve().then();
 
-      editor.getEditorState().read(() => {
+      editor.read('latest', () => {
         const selection = $getSelection();
 
         if (!$isRangeSelection(selection)) {
@@ -1344,7 +1344,7 @@ describe('LexicalSelectionHelpers tests', () => {
       });
 
       // getTextContent
-      setupTestCase((selection) => {
+      setupTestCase(selection => {
         expect(selection.getTextContent()).toEqual('a');
       });
 
@@ -1352,11 +1352,12 @@ describe('LexicalSelectionHelpers tests', () => {
       setupTestCase((selection, state) => {
         selection.insertText('Test');
 
-        expect($getNodeByKey('a')!.getTextContent()).toBe('Test');
+        const firstChild = state.getFirstChild()!;
+        expect(firstChild.getTextContent()).toBe('Test');
 
         expect(selection.anchor).toEqual(
           expect.objectContaining({
-            key: 'a',
+            key: firstChild.getKey(),
             offset: 4,
             type: 'text',
           }),
@@ -1364,7 +1365,7 @@ describe('LexicalSelectionHelpers tests', () => {
 
         expect(selection.focus).toEqual(
           expect.objectContaining({
-            key: 'a',
+            key: firstChild.getKey(),
             offset: 4,
             type: 'text',
           }),
@@ -1393,7 +1394,7 @@ describe('LexicalSelectionHelpers tests', () => {
       });
 
       // insertParagraph
-      setupTestCase((selection) => {
+      setupTestCase(selection => {
         selection.insertParagraph();
 
         expect(selection.anchor).toEqual(
@@ -1513,12 +1514,12 @@ describe('LexicalSelectionHelpers tests', () => {
       };
 
       // getNodes
-      setupTestCase((selection) => {
+      setupTestCase(selection => {
         expect(selection.getNodes()).toEqual([$getNodeByKey('a')]);
       });
 
       // getTextContent
-      setupTestCase((selection) => {
+      setupTestCase(selection => {
         expect(selection.getTextContent()).toEqual('a');
       });
 
@@ -1684,7 +1685,7 @@ describe('LexicalSelectionHelpers tests', () => {
       });
 
       // getTextContent
-      setupTestCase((selection) => {
+      setupTestCase(selection => {
         expect(selection.getTextContent()).toEqual('abc');
       });
 
@@ -2531,8 +2532,8 @@ describe('LexicalSelectionHelpers tests', () => {
         $insertNodes([element1, element2]);
       });
       expect([
-        '<div dir="auto"><br></div><div dir="auto"><br></div>',
-        '<div dir="auto"><br></div><p dir="auto"><br></p>',
+        '<div dir="auto"><br data-lexical-managed-linebreak="true"></div><div dir="auto"><br data-lexical-managed-linebreak="true"></div>',
+        '<div dir="auto"><br data-lexical-managed-linebreak="true"></div><p dir="auto"><br data-lexical-managed-linebreak="true"></p>',
       ]).toContain(element.innerHTML);
     });
   });
@@ -2677,9 +2678,11 @@ describe('insertNodes', () => {
       );
       selection.insertNodes([newHeading, $createLineBreakNode()]);
     });
-    editor.getEditorState().read(() => {
+    editor.read('latest', () => {
       expect(element.innerHTML).toBe(
-        '<h1 dir="auto"><span data-lexical-text="true">heading</span></h1><p dir="auto"><br></p>',
+        // the lone trailing LineBreakNode collapses to an empty paragraph,
+        // rendered with only the managed linebreak
+        '<h1 dir="auto"><span data-lexical-text="true">heading</span></h1><p dir="auto"><br data-lexical-managed-linebreak="true"></p>',
       );
       const selectedNode = ($getSelection() as RangeSelection).anchor.getNode();
       expect($isParagraphNode(selectedNode)).toBeTruthy();
@@ -3079,9 +3082,113 @@ describe('$patchStyleText', () => {
     });
   });
 
+  test('$getSelectionStyleValueForProperty returns consistent value regardless of selection direction', async () => {
+    const editor = createTestEditor();
+    const element = document.createElement('div');
+    editor.setRootElement(element);
+
+    await editor.update(() => {
+      const root = $getRoot();
+      const paragraph = $createParagraphNode();
+      root.append(paragraph);
+
+      const unstyled = $createTextNode('plain');
+      const styled = $createTextNode('colored');
+      styled.setStyle('color: red');
+
+      paragraph.append(unstyled);
+      paragraph.append(styled);
+
+      // Forward selection: unstyled -> styled
+      $setAnchorPoint({
+        key: unstyled.getKey(),
+        offset: 0,
+        type: 'text',
+      });
+      $setFocusPoint({
+        key: styled.getKey(),
+        offset: 'colored'.length,
+        type: 'text',
+      });
+
+      const forwardValue = $getSelectionStyleValueForProperty(
+        $getSelection() as RangeSelection,
+        'color',
+        '',
+      );
+
+      // Backward selection: styled -> unstyled
+      $setAnchorPoint({
+        key: styled.getKey(),
+        offset: 'colored'.length,
+        type: 'text',
+      });
+      $setFocusPoint({
+        key: unstyled.getKey(),
+        offset: 0,
+        type: 'text',
+      });
+
+      const backwardValue = $getSelectionStyleValueForProperty(
+        $getSelection() as RangeSelection,
+        'color',
+        '',
+      );
+
+      expect(forwardValue).toEqual('');
+      expect(backwardValue).toEqual('');
+      expect(forwardValue).toEqual(backwardValue);
+    });
+  });
+
+  test('$getSelectionStyleValueForProperty ignores nodes with zero characters selected at boundaries', async () => {
+    const editor = createTestEditor();
+    const element = document.createElement('div');
+    editor.setRootElement(element);
+
+    await editor.update(() => {
+      const root = $getRoot();
+      const paragraph = $createParagraphNode();
+      root.append(paragraph);
+
+      const styledA = $createTextNode('aaa');
+      styledA.setStyle('color: red');
+      const styledB = $createTextNode('bbb');
+      styledB.setStyle('color: red');
+      const different = $createTextNode('ccc');
+      different.setStyle('color: blue');
+
+      paragraph.append(styledA);
+      paragraph.append(styledB);
+      paragraph.append(different);
+
+      // Select from end of styledA to start of different
+      // styledA has 0 chars selected (offset at end), different has 0 chars (offset 0)
+      // only styledB is fully selected
+      $setAnchorPoint({
+        key: styledA.getKey(),
+        offset: 'aaa'.length,
+        type: 'text',
+      });
+      $setFocusPoint({
+        key: different.getKey(),
+        offset: 0,
+        type: 'text',
+      });
+
+      const value = $getSelectionStyleValueForProperty(
+        $getSelection() as RangeSelection,
+        'color',
+        '',
+      );
+
+      expect(value).toEqual('red');
+    });
+  });
+
   test.each<TextModeType>(['token', 'segmented'])(
     'can update style of text node that is in %s mode',
-    async (mode) => {
+    async mode => {
       const editor = createTestEditor();
 
       const element = document.createElement('div');

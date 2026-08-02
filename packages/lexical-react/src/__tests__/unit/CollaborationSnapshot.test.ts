@@ -16,16 +16,22 @@ import {
   $createTextNode,
   $getNodeByKeyOrThrow,
   $getRoot,
-  LexicalEditor,
-  MutationListener,
+  $isParagraphNode,
+  $isTextNode,
+  type LexicalEditor,
+  type MutationListener,
   ParagraphNode,
   TextNode,
 } from 'lexical';
-import {expectHtmlToBeEqual, html} from 'lexical/src/__tests__/utils';
+import {
+  $assertNodeType,
+  expectHtmlToBeEqual,
+  html,
+} from 'lexical/src/__tests__/utils';
 import {afterEach, beforeEach, describe, it} from 'vitest';
 import * as Y from 'yjs';
 
-import {Client, createTestConnection, waitForReact} from './utils';
+import {type Client, createTestConnection, waitForReact} from '../utils';
 
 describe('CollaborationSnapshot', () => {
   let container: null | HTMLDivElement = null;
@@ -45,8 +51,8 @@ describe('CollaborationSnapshot', () => {
     editor1 = client1.getEditor();
     editor2 = client2.getEditor();
 
-    const mutationListener: MutationListener = (mutations) => {
-      editor1.getEditorState().read(() => {
+    const mutationListener: MutationListener = mutations => {
+      editor1.read('latest', () => {
         for (const [nodeKey, mutation] of mutations) {
           if (mutation === 'destroyed') {
             continue;
@@ -56,7 +62,7 @@ describe('CollaborationSnapshot', () => {
             continue;
           }
           element.classList.remove('removed', 'added');
-          const node = $getNodeByKeyOrThrow<TextNode>(nodeKey);
+          const node = $getNodeByKeyOrThrow(nodeKey);
           const ychange = $getYChangeState<void>(node);
           if (!ychange) {
             continue;
@@ -89,49 +95,72 @@ describe('CollaborationSnapshot', () => {
 
   describe('DIFF_VERSIONS_COMMAND', () => {
     it('should diff between two snapshots', async () => {
-      editor1.update(
-        () => {
-          $getRoot()
-            .clear()
-            .append(
-              $createParagraphNode().append($createTextNode('ABC')),
-              $createParagraphNode().append(
-                $createTextNode('Removed between snapshots'),
-              ),
-              $createParagraphNode().append(
-                $createTextNode('Removed before prevSnapshot'),
-              ),
-            );
-        },
-        {discrete: true},
+      await waitForReact(() =>
+        editor1.update(
+          () => {
+            $getRoot()
+              .clear()
+              .append(
+                $createParagraphNode().append($createTextNode('ABC')),
+                $createParagraphNode().append(
+                  $createTextNode('Removed between snapshots'),
+                ),
+                $createParagraphNode().append(
+                  $createTextNode('Removed before prevSnapshot'),
+                ),
+              );
+          },
+          {discrete: true},
+        ),
       );
 
-      editor1.update(
-        () => {
-          $getRoot().getChildAtIndex<ParagraphNode>(2)!.remove();
-        },
-        {discrete: true},
+      await waitForReact(() =>
+        editor1.update(
+          () => {
+            $assertNodeType(
+              $getRoot().getChildAtIndex(2),
+              $isParagraphNode,
+            ).remove();
+          },
+          {discrete: true},
+        ),
       );
 
       const prevSnapshot = Y.snapshot(client1.getDoc());
 
-      editor1.update(
-        () => {
-          const paragraph = $getRoot().getChildAtIndex<ParagraphNode>(0)!;
-          paragraph.getChildAtIndex<TextNode>(0)!.spliceText(2, 1, '123');
-          $getRoot().getChildAtIndex<ParagraphNode>(1)!.remove();
-        },
-        {discrete: true},
+      await waitForReact(() =>
+        editor1.update(
+          () => {
+            const paragraph = $assertNodeType(
+              $getRoot().getChildAtIndex(0),
+              $isParagraphNode,
+            );
+            $assertNodeType(
+              paragraph.getChildAtIndex(0),
+              $isTextNode,
+            ).spliceText(2, 1, '123');
+            $assertNodeType(
+              $getRoot().getChildAtIndex(1),
+              $isParagraphNode,
+            ).remove();
+          },
+          {discrete: true},
+        ),
       );
 
       const snapshot = Y.snapshot(client1.getDoc());
 
-      editor1.update(
-        () => {
-          const paragraph = $getRoot().getChildAtIndex<ParagraphNode>(0)!;
-          paragraph.append($createTextNode('!'));
-        },
-        {discrete: true},
+      await waitForReact(() =>
+        editor1.update(
+          () => {
+            const paragraph = $assertNodeType(
+              $getRoot().getChildAtIndex(0),
+              $isParagraphNode,
+            );
+            paragraph.append($createTextNode('!'));
+          },
+          {discrete: true},
+        ),
       );
 
       await waitForReact(() =>
@@ -168,22 +197,32 @@ describe('CollaborationSnapshot', () => {
     });
 
     it('should diff from start of time if no prevSnapshot is provided', async () => {
-      editor1.update(
-        () => {
-          const paragraph = $getRoot().getFirstChildOrThrow<ParagraphNode>();
-          paragraph.append($createTextNode('Hello'));
-        },
-        {discrete: true},
+      await waitForReact(() =>
+        editor1.update(
+          () => {
+            const paragraph = $assertNodeType(
+              $getRoot().getFirstChild(),
+              $isParagraphNode,
+            );
+            paragraph.append($createTextNode('Hello'));
+          },
+          {discrete: true},
+        ),
       );
       const snapshot = Y.snapshot(client1.getDoc());
 
       // Another update that will not be in the snapshot
-      editor1.update(
-        () => {
-          const paragraph = $getRoot().getFirstChildOrThrow<ParagraphNode>();
-          paragraph.append($createTextNode(' world'));
-        },
-        {discrete: true},
+      await waitForReact(() =>
+        editor1.update(
+          () => {
+            const paragraph = $assertNodeType(
+              $getRoot().getFirstChild(),
+              $isParagraphNode,
+            );
+            paragraph.append($createTextNode(' world'));
+          },
+          {discrete: true},
+        ),
       );
 
       await waitForReact(() =>
@@ -212,21 +251,31 @@ describe('CollaborationSnapshot', () => {
     });
 
     it('should diff to latest state if no snapshot is provided', async () => {
-      editor1.update(
-        () => {
-          const paragraph = $getRoot().getFirstChildOrThrow<ParagraphNode>();
-          paragraph.append($createTextNode('Hello'));
-        },
-        {discrete: true},
+      await waitForReact(() =>
+        editor1.update(
+          () => {
+            const paragraph = $assertNodeType(
+              $getRoot().getFirstChild(),
+              $isParagraphNode,
+            );
+            paragraph.append($createTextNode('Hello'));
+          },
+          {discrete: true},
+        ),
       );
       const prevSnapshot = Y.snapshot(client1.getDoc());
 
-      editor1.update(
-        () => {
-          const paragraph = $getRoot().getFirstChildOrThrow<ParagraphNode>();
-          paragraph.append($createTextNode(' world'));
-        },
-        {discrete: true},
+      await waitForReact(() =>
+        editor1.update(
+          () => {
+            const paragraph = $assertNodeType(
+              $getRoot().getFirstChild(),
+              $isParagraphNode,
+            );
+            paragraph.append($createTextNode(' world'));
+          },
+          {discrete: true},
+        ),
       );
 
       await waitForReact(() =>
@@ -256,31 +305,38 @@ describe('CollaborationSnapshot', () => {
     });
 
     it('should not include elements that were added and removed between snapshots', async () => {
-      editor1.update(
-        () => {
-          $getRoot()
-            .getFirstChildOrThrow<ParagraphNode>()
-            .append($createTextNode('First paragraph'));
-        },
-        {discrete: true},
+      await waitForReact(() =>
+        editor1.update(
+          () => {
+            $assertNodeType(
+              $getRoot().getFirstChild(),
+              $isParagraphNode,
+            ).append($createTextNode('First paragraph'));
+          },
+          {discrete: true},
+        ),
       );
 
-      editor1.update(
-        () => {
-          $getRoot().append(
-            $createParagraphNode().append(
-              $createTextNode('Paragraph that will be removed'),
-            ),
-          );
-        },
-        {discrete: true},
+      await waitForReact(() =>
+        editor1.update(
+          () => {
+            $getRoot().append(
+              $createParagraphNode().append(
+                $createTextNode('Paragraph that will be removed'),
+              ),
+            );
+          },
+          {discrete: true},
+        ),
       );
 
-      editor1.update(
-        () => {
-          $getRoot().splice(1, 1, []);
-        },
-        {discrete: true},
+      await waitForReact(() =>
+        editor1.update(
+          () => {
+            $getRoot().splice(1, 1, []);
+          },
+          {discrete: true},
+        ),
       );
 
       const snapshot = Y.snapshot(client1.getDoc());
@@ -306,7 +362,10 @@ describe('CollaborationSnapshot', () => {
     it('should ignore changes from other clients while in diff mode', async () => {
       await waitForReact(() => {
         editor1.update(() => {
-          const paragraph = $getRoot().getFirstChildOrThrow<ParagraphNode>();
+          const paragraph = $assertNodeType(
+            $getRoot().getFirstChild(),
+            $isParagraphNode,
+          );
           paragraph.append($createTextNode('ABC'));
         });
       });
@@ -321,7 +380,10 @@ describe('CollaborationSnapshot', () => {
 
       await waitForReact(() => {
         editor2.update(() => {
-          const paragraph = $getRoot().getFirstChildOrThrow<ParagraphNode>();
+          const paragraph = $assertNodeType(
+            $getRoot().getFirstChild(),
+            $isParagraphNode,
+          );
           paragraph.append($createTextNode('XYZ'));
         });
       });
@@ -348,7 +410,10 @@ describe('CollaborationSnapshot', () => {
     it('should not sync changes to yjs while in diff mode', async () => {
       await waitForReact(() => {
         editor1.update(() => {
-          const paragraph = $getRoot().getFirstChildOrThrow<ParagraphNode>();
+          const paragraph = $assertNodeType(
+            $getRoot().getFirstChild(),
+            $isParagraphNode,
+          );
           paragraph.append($createTextNode('ABC'));
         });
       });
@@ -363,7 +428,10 @@ describe('CollaborationSnapshot', () => {
 
       await waitForReact(() => {
         editor1.update(() => {
-          const paragraph = $getRoot().getFirstChildOrThrow<ParagraphNode>();
+          const paragraph = $assertNodeType(
+            $getRoot().getFirstChild(),
+            $isParagraphNode,
+          );
           paragraph.append($createTextNode('!'));
         });
       });
@@ -393,7 +461,10 @@ describe('CollaborationSnapshot', () => {
     it('recover editor state after clear diff versions command', async () => {
       await waitForReact(() => {
         editor1.update(() => {
-          const paragraph = $getRoot().getFirstChildOrThrow<ParagraphNode>();
+          const paragraph = $assertNodeType(
+            $getRoot().getFirstChild(),
+            $isParagraphNode,
+          );
           paragraph.append($createTextNode('ABC'));
         });
       });
@@ -408,19 +479,19 @@ describe('CollaborationSnapshot', () => {
 
       await waitForReact(() => {
         editor2.update(() => {
-          const paragraph = $getRoot().getFirstChildOrThrow<ParagraphNode>();
+          const paragraph = $assertNodeType(
+            $getRoot().getFirstChild(),
+            $isParagraphNode,
+          );
           paragraph.append($createTextNode('XYZ'));
         });
       });
 
       await waitForReact(() =>
-        editor1.dispatchCommand(
-          CLEAR_DIFF_VERSIONS_COMMAND__EXPERIMENTAL,
-          undefined,
-        ),
+        editor1.dispatchCommand(CLEAR_DIFF_VERSIONS_COMMAND__EXPERIMENTAL),
       );
 
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      await new Promise(resolve => setTimeout(resolve, 100));
 
       expectHtmlToBeEqual(
         client1.getHTML(),
@@ -435,14 +506,20 @@ describe('CollaborationSnapshot', () => {
       // Ensure that updates after synced again.
       await waitForReact(() => {
         editor1.update(() => {
-          const paragraph = $getRoot().getFirstChildOrThrow<ParagraphNode>();
+          const paragraph = $assertNodeType(
+            $getRoot().getFirstChild(),
+            $isParagraphNode,
+          );
           paragraph.append($createTextNode('!'));
         });
       });
 
       await waitForReact(() => {
         editor2.update(() => {
-          const paragraph = $getRoot().getFirstChildOrThrow<ParagraphNode>();
+          const paragraph = $assertNodeType(
+            $getRoot().getFirstChild(),
+            $isParagraphNode,
+          );
           paragraph.append($createTextNode('?'));
         });
       });

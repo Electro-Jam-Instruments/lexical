@@ -10,16 +10,25 @@ import type {LexicalEditor} from 'lexical';
 
 import {$isRootTextContentEmptyCurry} from '@lexical/text';
 import {useState} from 'react';
-import useLayoutEffect from 'shared/useLayoutEffect';
 
+import useLayoutEffect from './shared/useLayoutEffect';
+
+/**
+ * Tracks whether the editor's text content is empty, updating as the editor
+ * changes. Pass `trim` to ignore leading and trailing whitespace when deciding
+ * emptiness.
+ *
+ * @returns `true` while the editor's text content is empty.
+ */
 export function useLexicalIsTextContentEmpty(
   editor: LexicalEditor,
   trim?: boolean,
 ): boolean {
   const [isEmpty, setIsEmpty] = useState(
-    editor
-      .getEditorState()
-      .read($isRootTextContentEmptyCurry(editor.isComposing(), trim)),
+    editor.read(
+      'latest',
+      $isRootTextContentEmptyCurry(editor.isComposing(), trim),
+    ),
   );
 
   useLayoutEffect(() => {
