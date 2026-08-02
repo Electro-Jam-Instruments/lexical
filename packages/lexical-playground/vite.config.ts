@@ -47,6 +47,7 @@ export default defineConfig(
           }
         : {minify: false}),
     },
+    server: {host: true, port: 2112, strictPort: true},
     plugins: [
       viteMonorepoResolutionPlugin(),
       babel({
@@ -74,10 +75,5 @@ export default defineConfig(
       ...viteCopyExcalidrawAssets(),
       viteCopyEsm(),
     ],
-    // ACCESSIBILITY FORK: pin the dev server to port 2112 (project convention)
-    server: {
-      host: '0.0.0.0',
-      port: 2112,
-    },
   }),
 );

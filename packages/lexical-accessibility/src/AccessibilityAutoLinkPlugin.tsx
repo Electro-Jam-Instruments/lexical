@@ -9,10 +9,10 @@
 import type {AccessibilityConfig} from './types';
 
 import {AutoLinkPlugin} from '@lexical/react/LexicalAutoLinkPlugin';
+import {useLexicalAriaLiveRegion} from '@lexical/react/useLexicalAriaLiveRegion';
 import * as React from 'react';
-import {useCallback, useRef} from 'react';
+import {useCallback} from 'react';
 
-import {AccessibilityLiveRegion} from './AccessibilityLiveRegion';
 import {generateLinkAnnouncement} from './announcementGenerator';
 
 /**
@@ -135,8 +135,10 @@ export function AccessibilityAutoLinkPlugin({
   verbosity = 'standard',
   announceLinks = true,
 }: AccessibilityAutoLinkPluginProps): React.ReactElement {
-  const [announcement, setAnnouncement] = React.useState<string>('');
-  const lastAnnouncementRef = useRef<string>('');
+  // Announce through upstream's AriaLiveRegionExtension rather than a region of
+  // our own. REQUIRES `AriaLiveRegionExtension` from `@lexical/a11y` in the
+  // editor's extension tree.
+  const announce = useLexicalAriaLiveRegion();
 
   const handleChange = useCallback(
     (url: string | null, prevUrl: string | null) => {
@@ -157,25 +159,13 @@ export function AccessibilityAutoLinkPlugin({
       // but for now we'll skip it as it's less common
 
       if (message) {
-        // Force re-announcement if same message
-        if (message === lastAnnouncementRef.current) {
-          setAnnouncement('');
-          requestAnimationFrame(() => {
-            setAnnouncement(message);
-          });
-        } else {
-          setAnnouncement(message);
-        }
-        lastAnnouncementRef.current = message;
+        // Repeat handling lives in AriaLiveRegionExtension: announcing the same
+        // string twice appends a zero-width space so the change still registers.
+        announce(message);
       }
     },
-    [announceLinks, verbosity],
+    [announce, announceLinks, verbosity],
   );
 
-  return (
-    <>
-      <AutoLinkPlugin matchers={matchers} onChange={handleChange} />
-      {announceLinks && <AccessibilityLiveRegion announcement={announcement} />}
-    </>
-  );
+  return <AutoLinkPlugin matchers={matchers} onChange={handleChange} />;
 }

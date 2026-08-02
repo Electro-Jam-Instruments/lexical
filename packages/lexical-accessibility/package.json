@@ -17,6 +17,7 @@
   "main": "./dist/LexicalAccessibility.js",
   "types": "./dist/typescript-too-old.d.ts",
   "dependencies": {
+    "@lexical/a11y": "workspace:*",
     "@lexical/code": "workspace:*",
     "@lexical/link": "workspace:*",
     "@lexical/list": "workspace:*",

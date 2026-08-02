@@ -6,15 +6,6 @@
  *
  */
 
-// ACCESSIBILITY FORK: EmojiPickerPlugin is sourced from @lexical/accessibility
-// rather than ./plugins/EmojiPickerPlugin so emoji selections are announced to
-// screen readers.
-import {
-  AccessibilityPlugin,
-  createEmojiConfig,
-  EmojiNode,
-  EmojiPickerPlugin,
-} from '@lexical/accessibility';
 import {CharacterLimitPlugin} from '@lexical/react/LexicalCharacterLimitPlugin';
 import {useLexicalComposerContext} from '@lexical/react/LexicalComposerContext';
 import {CAN_USE_DOM, registerEventListener} from 'lexical';
@@ -30,6 +21,7 @@ import CommentPlugin from './plugins/CommentPlugin';
 import ComponentPickerPlugin from './plugins/ComponentPickerPlugin';
 import ContextMenuPlugin from './plugins/ContextMenuPlugin';
 import DraggableBlockPlugin from './plugins/DraggableBlockPlugin';
+import EmojiPickerPlugin from './plugins/EmojiPickerPlugin';
 import {ExcalidrawPlugin} from './plugins/ExcalidrawExtension';
 import FloatingLinkEditorPlugin from './plugins/FloatingLinkEditorPlugin';
 import FloatingTextFormatToolbarPlugin from './plugins/FloatingTextFormatToolbarPlugin';
@@ -46,12 +38,6 @@ import TableScrollShadowPlugin from './plugins/TableScrollShadowPlugin';
 import ToolbarPlugin from './plugins/ToolbarPlugin';
 import TreeViewPlugin from './plugins/TreeViewPlugin';
 import ContentEditable from './ui/ContentEditable';
-
-// ACCESSIBILITY FORK: emoji accessibility config for screen reader announcements.
-// IMPORTANT: Both the config AND the array must be stable references to prevent
-// useEffect in useNodeRegistry from re-running and clearing announcedCreations.
-const emojiConfig = createEmojiConfig(EmojiNode);
-const additionalNodeConfigs = [emojiConfig];
 
 export default function Editor(): JSX.Element {
   const {
@@ -126,11 +112,8 @@ export default function Editor(): JSX.Element {
         className={`editor-container ${showTreeView ? 'tree-view' : ''} ${
           !isRichText ? 'plain-text' : ''
         }`}>
-        <AccessibilityPlugin additionalNodeConfigs={additionalNodeConfigs} />
         <ComponentPickerPlugin />
-        <EmojiPickerPlugin
-          emojiDataLoader={() => import('./utils/emoji-list')}
-        />
+        <EmojiPickerPlugin />
         <AutoEmbedPlugin />
         <MentionsPlugin />
         <SpeechToTextPlugin />

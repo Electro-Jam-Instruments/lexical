@@ -35,8 +35,7 @@ export const DragDropPasteExtension = /* @__PURE__ */ defineExtension({
             if (isMimeType(file, ACCEPTABLE_IMAGE_TYPES)) {
               editor.dispatchCommand(INSERT_IMAGE_COMMAND, {
                 altText: file.name,
-                maxWidth: 150,
-                src: result, // Thumbnail size for pasted images
+                src: result,
               });
             }
           }

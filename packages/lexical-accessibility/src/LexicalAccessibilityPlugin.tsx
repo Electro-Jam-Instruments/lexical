@@ -12,6 +12,7 @@ import {$isCodeNode} from '@lexical/code';
 import {$isListItemNode} from '@lexical/list';
 import {useLexicalComposerContext} from '@lexical/react/LexicalComposerContext';
 import {$isHorizontalRuleNode} from '@lexical/react/LexicalHorizontalRuleNode';
+import {useLexicalAriaLiveRegion} from '@lexical/react/useLexicalAriaLiveRegion';
 import {
   $getNodeByKey,
   $getRoot,
@@ -40,7 +41,6 @@ import {useEffect, useMemo, useRef} from 'react';
 // it locally (see packages/lexical/src/LexicalEditor.ts).
 const __DEV__ = process.env.NODE_ENV !== 'production';
 
-import {AccessibilityLiveRegion} from './AccessibilityLiveRegion';
 import {
   $createAccessibleTextNode,
   AccessibleTextNode,
@@ -62,7 +62,6 @@ import {
   DEFAULT_CONFIG,
   SUPPRESS_A11Y_ANNOUNCEMENTS_TAG,
 } from './types';
-import {useAnnounce} from './useAnnouncementQueue';
 import {nodeConfigs, useNodeRegistry} from './useNodeRegistry';
 
 // Text format flags from Lexical
@@ -94,7 +93,7 @@ export function AccessibilityPlugin({
   config = {},
   transformers = ACCESSIBILITY_TRANSFORMERS,
   additionalNodeConfigs = [],
-}: AccessibilityPluginProps): JSX.Element {
+}: AccessibilityPluginProps): null {
   const [editor] = useLexicalComposerContext();
 
   const mergedConfig = useMemo(
@@ -108,7 +107,14 @@ export function AccessibilityPlugin({
     [additionalNodeConfigs],
   );
 
-  const {currentAnnouncement, announce} = useAnnounce();
+  // Announcements go through upstream's AriaLiveRegionExtension rather than a
+  // region of our own. One region per editor, owned for the editor's lifetime,
+  // mounted in the editor's own document (iframe/shadow-DOM safe), and it
+  // survives React unmount/remount.
+  //
+  // REQUIRES `AriaLiveRegionExtension` from `@lexical/a11y` in the editor's
+  // extension tree — useLexicalAriaLiveRegion() throws without it.
+  const announce = useLexicalAriaLiveRegion();
 
   const previousFormatsRef = useRef(new Map<string, number>());
   const isIndentOperationRef = useRef(false);
@@ -841,5 +847,6 @@ export function AccessibilityPlugin({
     };
   }, [editor, mergedConfig, announce, transformers]);
 
-  return <AccessibilityLiveRegion announcement={currentAnnouncement} />;
+  // Renders nothing: AriaLiveRegionExtension owns the region.
+  return null;
 }

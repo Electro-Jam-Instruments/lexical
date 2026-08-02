@@ -1394,12 +1394,6 @@ i.page-setup,
   background-image: url(images/emoji/2764.png);
 }
 
-.emoji.arrow-right,
-.emoji.arrow-left {
-  color: inherit;
-  background-image: none;
-}
-
 .keyword {
   color: rgb(241, 118, 94);
   font-weight: bold;

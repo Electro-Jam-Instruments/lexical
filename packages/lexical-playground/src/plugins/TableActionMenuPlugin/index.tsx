@@ -139,7 +139,6 @@ type TableCellActionMenuProps = Readonly<{
   ) => void;
   tableCellNode: TableCellNode;
   cellMerge: boolean;
-  openedViaKeyboard?: boolean;
 }>;
 
 function TableActionMenu({
@@ -149,7 +148,6 @@ function TableActionMenu({
   contextRef,
   cellMerge,
   showColorPickerModal,
-  openedViaKeyboard = false,
 }: TableCellActionMenuProps) {
   const [editor] = useLexicalComposerContext();
   const dropDownRef = useRef<HTMLDivElement | null>(null);
@@ -162,113 +160,6 @@ function TableActionMenu({
   const [canUnmergeCell, setCanUnmergeCell] = useState(false);
   const [backgroundColor, setBackgroundColor] = useState(
     () => currentCellBackgroundColor(editor) || '',
-  );
-
-  // Focus first menu item when opened via keyboard
-  useEffect(() => {
-    if (openedViaKeyboard && dropDownRef.current) {
-      requestAnimationFrame(() => {
-        const firstItem = dropDownRef.current?.querySelector(
-          '[role="menuitem"]',
-        ) as HTMLElement | null;
-        if (firstItem) {
-          firstItem.focus();
-        }
-      });
-    }
-  }, [openedViaKeyboard]);
-
-  // Keyboard navigation handler for the menu
-  const handleMenuKeyDown = useCallback(
-    (event: React.KeyboardEvent) => {
-      const target = event.target as HTMLElement;
-
-      switch (event.key) {
-        case 'ArrowDown': {
-          event.preventDefault();
-          event.stopPropagation();
-          // Find next focusable menu item
-          let next = target.nextElementSibling as HTMLElement | null;
-          while (next && !next.matches('[role="menuitem"]')) {
-            next = next.nextElementSibling as HTMLElement | null;
-          }
-          if (next) {
-            next.focus();
-          } else {
-            // Wrap to first item
-            const first = dropDownRef.current?.querySelector(
-              '[role="menuitem"]',
-            ) as HTMLElement | null;
-            first?.focus();
-          }
-          break;
-        }
-        case 'ArrowUp': {
-          event.preventDefault();
-          event.stopPropagation();
-          // Find previous focusable menu item
-          let prev = target.previousElementSibling as HTMLElement | null;
-          while (prev && !prev.matches('[role="menuitem"]')) {
-            prev = prev.previousElementSibling as HTMLElement | null;
-          }
-          if (prev) {
-            prev.focus();
-          } else {
-            // Wrap to last item
-            const items =
-              dropDownRef.current?.querySelectorAll('[role="menuitem"]');
-            const last = items?.[items.length - 1] as HTMLElement | null;
-            last?.focus();
-          }
-          break;
-        }
-        case 'Home': {
-          event.preventDefault();
-          event.stopPropagation();
-          const first = dropDownRef.current?.querySelector(
-            '[role="menuitem"]',
-          ) as HTMLElement | null;
-          first?.focus();
-          break;
-        }
-        case 'End': {
-          event.preventDefault();
-          event.stopPropagation();
-          const items =
-            dropDownRef.current?.querySelectorAll('[role="menuitem"]');
-          const last = items?.[items.length - 1] as HTMLElement | null;
-          last?.focus();
-          break;
-        }
-        case 'Enter':
-        case ' ': {
-          // Let the button's onClick handle it
-          // But if target is a menuitem button, click it
-          if (target.matches('[role="menuitem"]')) {
-            event.preventDefault();
-            event.stopPropagation();
-            target.click();
-          }
-          break;
-        }
-        case 'Escape': {
-          event.preventDefault();
-          event.stopPropagation();
-          setIsMenuOpen(false);
-          // Return focus to the editor where the cursor was
-          editor.getRootElement()?.focus();
-          break;
-        }
-        case 'Tab': {
-          // Close menu on tab, return focus to editor
-          event.preventDefault();
-          setIsMenuOpen(false);
-          editor.getRootElement()?.focus();
-          break;
-        }
-      }
-    },
-    [setIsMenuOpen, editor],
   );
 
   useEffect(() => {
@@ -330,16 +221,16 @@ function TableActionMenu({
       ) {
         const position =
           menuButtonRect.left - dropDownElementRect.width - margin;
-        leftPosition = (position < 0 ? margin : position) + window.scrollX;
+        leftPosition = (position < 0 ? margin : position) + window.pageXOffset;
       }
-      dropDownElement.style.left = `${leftPosition + window.scrollX}px`;
+      dropDownElement.style.left = `${leftPosition + window.pageXOffset}px`;
 
       let topPosition = menuButtonRect.top;
       if (topPosition + dropDownElementRect.height > window.innerHeight) {
         const position = menuButtonRect.bottom - dropDownElementRect.height;
-        topPosition = (position < 0 ? margin : position) + window.scrollY;
+        topPosition = position < 0 ? margin : position;
       }
-      dropDownElement.style.top = `${topPosition + window.scrollY}px`;
+      dropDownElement.style.top = `${topPosition}px`;
     }
   }, [contextRef, dropDownRef, editor]);
 
@@ -580,7 +471,6 @@ function TableActionMenu({
         <button
           type="button"
           className="item"
-          role="menuitem"
           onClick={() => mergeTableCellsAtSelection()}
           data-test-id="table-merge-cells">
           <span className="text">Merge cells</span>
@@ -591,7 +481,6 @@ function TableActionMenu({
         <button
           type="button"
           className="item"
-          role="menuitem"
           onClick={() => unmergeTableCellsAtSelection()}
           data-test-id="table-unmerge-cells">
           <span className="text">Unmerge cells</span>
@@ -601,12 +490,10 @@ function TableActionMenu({
   }
 
   return createPortal(
+    // eslint-disable-next-line jsx-a11y/no-static-element-interactions
     <div
       className="dropdown"
       ref={dropDownRef}
-      role="menu"
-      aria-label="Table cell actions"
-      onKeyDown={handleMenuKeyDown}
       onClick={e => {
         e.stopPropagation();
       }}>
@@ -614,7 +501,6 @@ function TableActionMenu({
       <button
         type="button"
         className="item"
-        role="menuitem"
         onClick={() =>
           showColorPickerModal('Cell background color', () => (
             <ColorPicker
@@ -629,7 +515,6 @@ function TableActionMenu({
       <button
         type="button"
         className="item"
-        role="menuitem"
         onClick={() => toggleRowStriping()}
         data-test-id="table-row-striping">
         <span className="text">Toggle Row Striping</span>
@@ -672,7 +557,6 @@ function TableActionMenu({
       <button
         type="button"
         className="item"
-        role="menuitem"
         onClick={() => toggleFirstRowFreeze()}
         data-test-id="table-freeze-first-row">
         <span className="text">Toggle First Row Freeze</span>
@@ -680,7 +564,6 @@ function TableActionMenu({
       <button
         type="button"
         className="item"
-        role="menuitem"
         onClick={() => toggleFirstColumnFreeze()}
         data-test-id="table-freeze-first-column">
         <span className="text">Toggle First Column Freeze</span>
@@ -689,7 +572,6 @@ function TableActionMenu({
       <button
         type="button"
         className="item"
-        role="menuitem"
         onClick={() => insertTableRowAtSelection(false)}
         data-test-id="table-insert-row-above">
         <span className="text">
@@ -701,7 +583,6 @@ function TableActionMenu({
       <button
         type="button"
         className="item"
-        role="menuitem"
         onClick={() => insertTableRowAtSelection(true)}
         data-test-id="table-insert-row-below">
         <span className="text">
@@ -714,7 +595,6 @@ function TableActionMenu({
       <button
         type="button"
         className="item"
-        role="menuitem"
         onClick={() => insertTableColumnAtSelection(false)}
         data-test-id="table-insert-column-before">
         <span className="text">
@@ -728,7 +608,6 @@ function TableActionMenu({
       <button
         type="button"
         className="item"
-        role="menuitem"
         onClick={() => insertTableColumnAtSelection(true)}
         data-test-id="table-insert-column-after">
         <span className="text">
@@ -743,7 +622,6 @@ function TableActionMenu({
       <button
         type="button"
         className="item"
-        role="menuitem"
         onClick={() => deleteTableColumnAtSelection()}
         data-test-id="table-delete-columns">
         <span className="text">Delete column</span>
@@ -751,7 +629,6 @@ function TableActionMenu({
       <button
         type="button"
         className="item"
-        role="menuitem"
         onClick={() => deleteTableRowAtSelection()}
         data-test-id="table-delete-rows">
         <span className="text">Delete row</span>
@@ -759,7 +636,6 @@ function TableActionMenu({
       <button
         type="button"
         className="item"
-        role="menuitem"
         onClick={() => deleteTableAtSelection()}
         data-test-id="table-delete">
         <span className="text">Delete table</span>
@@ -768,7 +644,6 @@ function TableActionMenu({
       <button
         type="button"
         className="item"
-        role="menuitem"
         onClick={() => toggleTableRowIsHeader()}
         data-test-id="table-row-header">
         <span className="text">
@@ -782,7 +657,6 @@ function TableActionMenu({
       <button
         type="button"
         className="item"
-        role="menuitem"
         onClick={() => toggleTableColumnIsHeader()}
         data-test-id="table-column-header">
         <span className="text">
@@ -810,101 +684,12 @@ function TableCellActionMenuContainer({
   const menuButtonRef = useRef<HTMLDivElement | null>(null);
   const menuRootRef = useRef<HTMLButtonElement | null>(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [openedViaKeyboard, setOpenedViaKeyboard] = useState(false);
 
   const [tableCellNode, setTableMenuCellNode] = useState<TableCellNode | null>(
     null,
   );
 
   const [colorPickerModal, showColorPickerModal] = useModal();
-
-  // Keyboard handler for the chevron button
-  const handleButtonKeyDown = useCallback(
-    (event: React.KeyboardEvent) => {
-      // Context Menu key or Shift+F10 to open menu
-      if (
-        event.key === 'ContextMenu' ||
-        (event.shiftKey && event.key === 'F10')
-      ) {
-        event.preventDefault();
-        event.stopPropagation();
-        setOpenedViaKeyboard(true);
-        setIsMenuOpen(true);
-        return;
-      }
-
-      // Enter or Space to toggle menu
-      if (event.key === 'Enter' || event.key === ' ') {
-        event.preventDefault();
-        event.stopPropagation();
-        setOpenedViaKeyboard(true);
-        setIsMenuOpen(!isMenuOpen);
-      }
-    },
-    [isMenuOpen],
-  );
-
-  // Track if we just handled a keyboard context menu trigger
-  const suppressContextMenuRef = useRef(false);
-
-  // Listen for context menu key when focused in table cells
-  useEffect(() => {
-    if (!tableCellNode) {
-      return;
-    }
-
-    const handleTableCellKeyDown = (event: KeyboardEvent) => {
-      // Only handle if we have a valid table cell
-      if (!tableCellNode) {
-        return;
-      }
-
-      // Context Menu key or Shift+F10
-      if (
-        event.key === 'ContextMenu' ||
-        (event.shiftKey && event.key === 'F10')
-      ) {
-        event.preventDefault();
-        event.stopPropagation();
-        // Flag to suppress the contextmenu event that follows Shift+F10
-        suppressContextMenuRef.current = true;
-        setOpenedViaKeyboard(true);
-        setIsMenuOpen(true);
-
-        // Focus the menu button
-        requestAnimationFrame(() => {
-          menuRootRef.current?.focus();
-        });
-      }
-    };
-
-    const rootElement = editor.getRootElement();
-    if (rootElement) {
-      rootElement.addEventListener('keydown', handleTableCellKeyDown);
-      return () => {
-        rootElement.removeEventListener('keydown', handleTableCellKeyDown);
-      };
-    }
-  }, [editor, tableCellNode]);
-
-  // Separate effect to handle contextmenu event on document with capture phase
-  // This must run before the browser shows its context menu
-  useEffect(() => {
-    const handleContextMenu = (event: MouseEvent) => {
-      // Suppress the native context menu if we just handled a keyboard trigger
-      if (suppressContextMenuRef.current) {
-        event.preventDefault();
-        event.stopPropagation();
-        suppressContextMenuRef.current = false;
-      }
-    };
-
-    // Use capture phase to catch the event before it bubbles
-    document.addEventListener('contextmenu', handleContextMenu, true);
-    return () => {
-      document.removeEventListener('contextmenu', handleContextMenu, true);
-    };
-  }, []);
 
   const checkTableCellOverflow = useCallback(
     (tableCellParentNodeDOM: HTMLElement): boolean => {
@@ -1035,7 +820,6 @@ function TableCellActionMenuContainer({
       if (checkTableCellOverflow(tableCellParentNodeDOM)) {
         return disable();
       }
-      setTableMenuCellNode(anchorNode);
     } else if (!activeElement) {
       return disable();
     }
@@ -1114,14 +898,9 @@ function TableCellActionMenuContainer({
             className="table-cell-action-button chevron-down"
             onClick={e => {
               e.stopPropagation();
-              setOpenedViaKeyboard(false);
               setIsMenuOpen(!isMenuOpen);
             }}
-            onKeyDown={handleButtonKeyDown}
-            ref={menuRootRef}
-            aria-label="Table cell options"
-            aria-expanded={isMenuOpen}
-            aria-haspopup="menu">
+            ref={menuRootRef}>
             <i className="chevron-down" />
           </button>
           {isMenuOpen && (
@@ -1132,7 +911,6 @@ function TableCellActionMenuContainer({
               tableCellNode={tableCellNode}
               cellMerge={cellMerge}
               showColorPickerModal={showColorPickerModal}
-              openedViaKeyboard={openedViaKeyboard}
             />
           )}
         </>

@@ -26,10 +26,8 @@ export type {
 export {DEFAULT_CONFIG, SUPPRESS_A11Y_ANNOUNCEMENTS_TAG} from './types';
 
 // Components (for advanced usage)
-export {AccessibilityLiveRegion} from './AccessibilityLiveRegion';
 
 // Hooks (for advanced usage)
-export {useAnnounce} from './useAnnouncementQueue';
 
 // Utilities (for advanced usage)
 export {

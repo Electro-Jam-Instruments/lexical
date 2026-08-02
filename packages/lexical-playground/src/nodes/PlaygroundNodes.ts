@@ -8,7 +8,6 @@
 
 import type {Klass, LexicalNode} from 'lexical';
 
-import {AccessibleTextNode, EmojiNode} from '@lexical/accessibility';
 import {CodeHighlightNode, CodeNode} from '@lexical/code';
 import {HorizontalRuleNode} from '@lexical/extension';
 import {HashtagNode} from '@lexical/hashtag';
@@ -26,6 +25,7 @@ import {CollapsibleTitleNode} from '../plugins/CollapsibleExtension/CollapsibleT
 import {PullQuoteNode} from '../plugins/PullQuoteExtension/PullQuoteNode';
 import {ReviewNode} from '../plugins/ReviewExtension/ReviewNode';
 import {DateTimeNode} from './DateTimeNode/DateTimeNode';
+import {EmojiNode} from './EmojiNode';
 import {EquationNode} from './EquationNode';
 import {ExcalidrawNode} from './ExcalidrawNode';
 import {FigmaNode} from './FigmaNode';
@@ -43,8 +43,6 @@ import {TweetNode} from './TweetNode';
 import {YouTubeNode} from './YouTubeNode';
 
 const PlaygroundNodes: Klass<LexicalNode>[] = [
-  // ACCESSIBILITY FORK: CSS-formatting text node used by @lexical/accessibility
-  AccessibleTextNode,
   HeadingNode,
   ListNode,
   ListItemNode,
