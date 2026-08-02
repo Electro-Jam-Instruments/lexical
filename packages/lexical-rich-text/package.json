@@ -38,7 +38,6 @@
     }
   },
   "dependencies": {
-    "@lexical/a11y": "workspace:*",
     "@lexical/clipboard": "workspace:*",
     "@lexical/dragon": "workspace:*",
     "@lexical/extension": "workspace:*",

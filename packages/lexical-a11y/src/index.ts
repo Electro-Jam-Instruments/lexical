@@ -7,6 +7,11 @@
  */
 
 import {
+  $isHeadingNode,
+  HeadingNode,
+  type HeadingTagType,
+} from '@lexical/rich-text';
+import {
   effect,
   namedSignals,
   type NamedSignalsOutput,
@@ -14,6 +19,7 @@ import {
   signal,
 } from '@lexical/extension';
 import {
+  $getNodeByKey,
   COMMAND_PRIORITY_LOW,
   createRefCountedRegistry,
   defineExtension,
@@ -23,6 +29,7 @@ import {
   isHTMLElement,
   KEY_DOWN_COMMAND,
   type LexicalEditor,
+  type NodeKey,
   mergeRegister,
   REDO_COMMAND,
   type RefCountedRegistry,
@@ -723,4 +730,82 @@ export const FocusManagerExtension = /* @__PURE__ */ defineExtension({
     ),
   name: '@lexical/a11y/FocusManager',
   register: (_editor, _config, state) => () => state.getOutput().dispose(),
+});
+
+export interface HeadingAnnounceExtensionConfig {
+  /**
+   * Announced when a block becomes a heading. `%s` is replaced with the
+   * level (1-6).
+   */
+  created: string;
+  /**
+   * Announced when a heading stops being a heading. `%s` is replaced with the
+   * level it was.
+   */
+  destroyed: string;
+  /**
+   * When `true`, headings are not announced. Toggle at runtime via the output
+   * signal. Default `false`.
+   */
+  disabled: boolean;
+}
+
+function $readHeadingTag(key: NodeKey): HeadingTagType | null {
+  const node = $getNodeByKey(key);
+  return $isHeadingNode(node) ? node.getTag() : null;
+}
+
+/**
+ * Announces headings through the {@link AriaLiveRegionExtension} sink: a block
+ * becoming a heading, and a heading ceasing to be one.
+ *
+ * Only those two transitions are announced. Typing inside a heading, moving the
+ * caret through it, and deleting text while the heading survives are all
+ * silent - announcing on every keystroke would make a heading impossible to
+ * type into.
+ *
+ * A destroyed node is gone from the current editor state, so its level is read
+ * from the previous state `registerMutationListener` provides.
+ */
+export const HeadingAnnounceExtension = /* @__PURE__ */ defineExtension({
+  build: (_editor, config) => namedSignals(config),
+  config: /* @__PURE__ */ safeCast<HeadingAnnounceExtensionConfig>({
+    created: 'Heading level %s',
+    destroyed: 'Heading level %s removed',
+    disabled: false,
+  }),
+  dependencies: [AriaLiveRegionExtension],
+  name: '@lexical/a11y/HeadingAnnounce',
+  register(editor, _config, state) {
+    const {created, destroyed, disabled} = state.getOutput();
+    const {announce} = state.getDependency(AriaLiveRegionExtension).output;
+
+    // Gate on `disabled` from an effect so a disabled announcer registers no
+    // listener at all. Peek the message signals at announce time so editing
+    // them does not re-register.
+    return effect(() =>
+      disabled.value
+        ? undefined
+        : editor.registerMutationListener(
+            HeadingNode,
+            (nodes, {prevEditorState}) => {
+              for (const [key, mutation] of nodes) {
+                const tag =
+                  mutation === 'created'
+                    ? editor.read(() => $readHeadingTag(key))
+                    : mutation === 'destroyed'
+                      ? prevEditorState.read(() => $readHeadingTag(key))
+                      : null;
+                if (tag === null) {
+                  continue;
+                }
+                const template =
+                  mutation === 'created' ? created.peek() : destroyed.peek();
+                announce(template.replace('%s', tag.slice(1)));
+              }
+            },
+            {skipInitialization: true},
+          ),
+    );
+  },
 });

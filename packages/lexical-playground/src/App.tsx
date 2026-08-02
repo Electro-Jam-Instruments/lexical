@@ -9,6 +9,7 @@
 import {
   AriaLiveRegionExtension,
   EditorModeAnnounceExtension,
+  HeadingAnnounceExtension,
   FocusManagerExtension,
   FocusTrapExtension,
   HistoryAnnounceExtension,
@@ -50,7 +51,6 @@ import {LexicalExtensionComposer} from '@lexical/react/LexicalExtensionComposer'
 import {
   $createHeadingNode,
   $createQuoteNode,
-  HeadingAnnounceExtension,
   RichTextExtension,
 } from '@lexical/rich-text';
 import {TableExtension} from '@lexical/table';
