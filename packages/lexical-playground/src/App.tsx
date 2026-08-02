@@ -50,6 +50,7 @@ import {LexicalExtensionComposer} from '@lexical/react/LexicalExtensionComposer'
 import {
   $createHeadingNode,
   $createQuoteNode,
+  HeadingAnnounceExtension,
   RichTextExtension,
 } from '@lexical/rich-text';
 import {TableExtension} from '@lexical/table';
@@ -272,6 +273,7 @@ const AppExtension = /* @__PURE__ */ defineExtension({
     }),
     HistoryAnnounceExtension,
     EditorModeAnnounceExtension,
+    HeadingAnnounceExtension,
     KeywordsExtension,
     HashtagExtension,
     DateTimeExtension,
