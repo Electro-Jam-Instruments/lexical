@@ -789,19 +789,25 @@ export const HeadingAnnounceExtension = /* @__PURE__ */ defineExtension({
         : editor.registerMutationListener(
             HeadingNode,
             (nodes, {prevEditorState}) => {
+              // A level change fires both a removal and a creation. In the
+              // first block the removal reaches the live region, announcing the
+              // old level instead of the new one. Prefer the creation; only
+              // announce removal when nothing replaced it.
+              let createdTag: HeadingTagType | null = null;
+              let destroyedTag: HeadingTagType | null = null;
               for (const [key, mutation] of nodes) {
-                const tag =
-                  mutation === 'created'
-                    ? editor.read(() => $readHeadingTag(key))
-                    : mutation === 'destroyed'
-                      ? prevEditorState.read(() => $readHeadingTag(key))
-                      : null;
-                if (tag === null) {
-                  continue;
+                if (mutation === 'created' && createdTag === null) {
+                  createdTag = editor.read(() => $readHeadingTag(key));
+                } else if (mutation === 'destroyed' && destroyedTag === null) {
+                  destroyedTag = prevEditorState.read(() =>
+                    $readHeadingTag(key),
+                  );
                 }
-                const template =
-                  mutation === 'created' ? created.peek() : destroyed.peek();
-                announce(template.replace('%s', tag.slice(1)));
+              }
+              if (createdTag !== null) {
+                announce(created.peek().replace('%s', createdTag.slice(1)));
+              } else if (destroyedTag !== null) {
+                announce(destroyed.peek().replace('%s', destroyedTag.slice(1)));
               }
             },
             {skipInitialization: true},
