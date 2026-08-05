@@ -372,6 +372,7 @@ export function LexicalTypeaheadMenuPlugin<TOption extends MenuOption>({
     editor === null ||
     anchorElementRef.current === null ? null : (
     <LexicalMenu
+      ariaLabel={menuAriaLabel}
       close={closeTypeahead}
       resolution={resolution}
       editor={editor}
