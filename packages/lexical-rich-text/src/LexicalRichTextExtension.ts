@@ -30,6 +30,7 @@ import {
   registerRichText,
   type TriggerConfig,
 } from './index';
+import {QuoteAnnounceExtension} from './QuoteAnnounceExtension';
 import {RichTextImportRules} from './RichTextImportExtension';
 
 /**
@@ -110,6 +111,7 @@ export const RichTextExtension = /* @__PURE__ */ defineExtension({
   conflictsWith: ['@lexical/plain-text'],
   dependencies: [
     HeadingAnnounceExtension,
+    QuoteAnnounceExtension,
     DragonExtension,
     NormalizeInlineElementsExtension,
     NormalizeTripleClickSelectionExtension,
