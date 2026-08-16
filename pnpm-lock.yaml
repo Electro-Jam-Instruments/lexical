@@ -590,6 +590,9 @@ importers:
 
   packages/lexical-accessibility:
     dependencies:
+      '@lexical/a11y':
+        specifier: workspace:*
+        version: link:../lexical-a11y
       '@lexical/code':
         specifier: workspace:*
         version: link:../lexical-code

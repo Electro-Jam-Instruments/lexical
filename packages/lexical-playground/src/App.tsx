@@ -9,7 +9,6 @@
 import {
   AriaLiveRegionExtension,
   EditorModeAnnounceExtension,
-  HeadingAnnounceExtension,
   FocusManagerExtension,
   FocusTrapExtension,
   HistoryAnnounceExtension,
@@ -273,7 +272,6 @@ const AppExtension = /* @__PURE__ */ defineExtension({
     }),
     HistoryAnnounceExtension,
     EditorModeAnnounceExtension,
-    HeadingAnnounceExtension,
     KeywordsExtension,
     HashtagExtension,
     DateTimeExtension,
