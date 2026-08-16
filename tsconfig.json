@@ -15,6 +15,9 @@
     "paths": {
       "lexical": ["./packages/lexical/src/index.ts"],
       "@lexical/a11y": ["./packages/lexical-a11y/src/index.ts"],
+      "@lexical/accessibility": [
+        "./packages/lexical-accessibility/src/index.ts"
+      ],
       "@lexical/clipboard": ["./packages/lexical-clipboard/src/index.ts"],
       "@lexical/code": ["./packages/lexical-code/src/index.ts"],
       "@lexical/code-core": ["./packages/lexical-code-core/src/index.ts"],
@@ -319,6 +322,10 @@
       "@lexical/tailwind/src/*": ["./packages/lexical-tailwind/src/*"],
       "@lexical/text/src": ["./packages/lexical-text/src"],
       "@lexical/text/src/*": ["./packages/lexical-text/src/*"],
+      "@lexical/accessibility/src": ["./packages/lexical-accessibility/src"],
+      "@lexical/accessibility/src/*": [
+        "./packages/lexical-accessibility/src/*"
+      ],
       "@lexical/utils/src": ["./packages/lexical-utils/src"],
       "@lexical/utils/src/*": ["./packages/lexical-utils/src/*"],
       "@lexical/yjs/src": ["./packages/lexical-yjs/src"],

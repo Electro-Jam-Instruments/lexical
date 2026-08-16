@@ -40,6 +40,7 @@ export {
 } from './announcementGenerator';
 
 // Node configs (for extensibility)
+export {codeBlockConfig} from './codeBlockConfig';
 export {headingConfig} from './headingConfig';
 export {horizontalRuleConfig} from './horizontalRuleConfig';
 export {listItemConfig} from './listItemConfig';

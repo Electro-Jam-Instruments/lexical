@@ -6,6 +6,12 @@
  *
  */
 
+import {
+  AccessibilityPlugin,
+  codeBlockConfig,
+  horizontalRuleConfig,
+  listItemConfig,
+} from '@lexical/accessibility';
 import {CharacterLimitPlugin} from '@lexical/react/LexicalCharacterLimitPlugin';
 import {useLexicalComposerContext} from '@lexical/react/LexicalComposerContext';
 import {CAN_USE_DOM, registerEventListener} from 'lexical';
@@ -38,6 +44,16 @@ import TableScrollShadowPlugin from './plugins/TableScrollShadowPlugin';
 import ToolbarPlugin from './plugins/ToolbarPlugin';
 import TreeViewPlugin from './plugins/TreeViewPlugin';
 import ContentEditable from './ui/ContentEditable';
+
+// Headings, quotes and automatic links announce themselves from their own
+// packages now, so this list covers only what is left. Must be a stable
+// reference: useNodeRegistry re-registers and forgets what it has already
+// announced when the array identity changes.
+const A11Y_NODE_CONFIGS = [
+  listItemConfig,
+  codeBlockConfig,
+  horizontalRuleConfig,
+];
 
 export default function Editor(): JSX.Element {
   const {
@@ -112,6 +128,7 @@ export default function Editor(): JSX.Element {
         className={`editor-container ${showTreeView ? 'tree-view' : ''} ${
           !isRichText ? 'plain-text' : ''
         }`}>
+        <AccessibilityPlugin nodeConfigs={A11Y_NODE_CONFIGS} />
         <ComponentPickerPlugin />
         <EmojiPickerPlugin />
         <AutoEmbedPlugin />
