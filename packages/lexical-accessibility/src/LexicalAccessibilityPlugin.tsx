@@ -6,7 +6,12 @@
  *
  */
 
-import type {
+import {$isCodeNode} from '@lexical/code';
+import {$isListItemNode} from '@lexical/list';
+import {useLexicalComposerContext} from '@lexical/react/LexicalComposerContext';
+import {$isHorizontalRuleNode} from '@lexical/react/LexicalHorizontalRuleNode';
+import {useLexicalAriaLiveRegion} from '@lexical/react/useLexicalAriaLiveRegion';
+import {
   $getNodeByKey,
   $getRoot,
   $getSelection,
@@ -22,17 +27,12 @@ import type {
   KEY_DELETE_COMMAND,
   KEY_ENTER_COMMAND,
   KEY_TAB_COMMAND,
-  LexicalNode,
+  type LexicalNode,
   OUTDENT_CONTENT_COMMAND,
   PASTE_COMMAND,
   type PasteCommandType,
-  TextNode} from 'lexical';
-
-import {$isCodeNode} from '@lexical/code';
-import {$isListItemNode} from '@lexical/list';
-import {useLexicalComposerContext} from '@lexical/react/LexicalComposerContext';
-import {$isHorizontalRuleNode} from '@lexical/react/LexicalHorizontalRuleNode';
-import {useLexicalAriaLiveRegion} from '@lexical/react/useLexicalAriaLiveRegion';
+  TextNode,
+} from 'lexical';
 import {useEffect, useMemo, useRef} from 'react';
 
 import {
