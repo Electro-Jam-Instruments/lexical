@@ -6,14 +6,7 @@
  *
  */
 
-import type {JSX} from 'react';
-
-import {$isCodeNode} from '@lexical/code';
-import {$isListItemNode} from '@lexical/list';
-import {useLexicalComposerContext} from '@lexical/react/LexicalComposerContext';
-import {$isHorizontalRuleNode} from '@lexical/react/LexicalHorizontalRuleNode';
-import {useLexicalAriaLiveRegion} from '@lexical/react/useLexicalAriaLiveRegion';
-import {
+import type {
   $getNodeByKey,
   $getRoot,
   $getSelection,
@@ -33,13 +26,14 @@ import {
   OUTDENT_CONTENT_COMMAND,
   PASTE_COMMAND,
   type PasteCommandType,
-  TextNode,
-} from 'lexical';
-import {useEffect, useMemo, useRef} from 'react';
+  TextNode} from 'lexical';
 
-// Upstream removed the ambient __DEV__ global in v0.49.0; packages now derive
-// it locally (see packages/lexical/src/LexicalEditor.ts).
-const __DEV__ = process.env.NODE_ENV !== 'production';
+import {$isCodeNode} from '@lexical/code';
+import {$isListItemNode} from '@lexical/list';
+import {useLexicalComposerContext} from '@lexical/react/LexicalComposerContext';
+import {$isHorizontalRuleNode} from '@lexical/react/LexicalHorizontalRuleNode';
+import {useLexicalAriaLiveRegion} from '@lexical/react/useLexicalAriaLiveRegion';
+import {useEffect, useMemo, useRef} from 'react';
 
 import {
   $createAccessibleTextNode,
@@ -63,6 +57,10 @@ import {
   SUPPRESS_A11Y_ANNOUNCEMENTS_TAG,
 } from './types';
 import {nodeConfigs, useNodeRegistry} from './useNodeRegistry';
+
+// Upstream removed the ambient __DEV__ global in v0.49.0; packages now derive
+// it locally (see packages/lexical/src/LexicalEditor.ts).
+const __DEV__ = process.env.NODE_ENV !== 'production';
 
 // Text format flags from Lexical
 const IS_BOLD = 1;
@@ -161,22 +159,17 @@ export function AccessibilityPlugin({
     }
 
     // Transform regular TextNodes into AccessibleTextNodes
-    const unregisterTransform = editor.registerNodeTransform(
-      TextNode,
-      (node) => {
-        // Only transform base TextNode, not subclasses (including AccessibleTextNode)
-        if (node.getType() === 'text') {
-          const accessibleNode = $createAccessibleTextNode(
-            node.getTextContent(),
-          );
-          accessibleNode.setFormat(node.getFormat());
-          accessibleNode.setDetail(node.getDetail());
-          accessibleNode.setMode(node.getMode());
-          accessibleNode.setStyle(node.getStyle());
-          node.replace(accessibleNode);
-        }
-      },
-    );
+    const unregisterTransform = editor.registerNodeTransform(TextNode, node => {
+      // Only transform base TextNode, not subclasses (including AccessibleTextNode)
+      if (node.getType() === 'text') {
+        const accessibleNode = $createAccessibleTextNode(node.getTextContent());
+        accessibleNode.setFormat(node.getFormat());
+        accessibleNode.setDetail(node.getDetail());
+        accessibleNode.setMode(node.getMode());
+        accessibleNode.setStyle(node.getStyle());
+        node.replace(accessibleNode);
+      }
+    });
 
     return () => {
       unregisterTransform();
@@ -239,22 +232,25 @@ export function AccessibilityPlugin({
       return undefined;
     };
 
-    const $isInsideCodeBlock = (): boolean => {
+    const $getEnclosingCodeBlockKey = (): string | null => {
       const selection = $getSelection();
       if (!$isRangeSelection(selection)) {
-        return false;
+        return null;
       }
 
       const anchorNode = selection.anchor.getNode();
       let node: LexicalNode | null = anchorNode;
       while (node !== null) {
         if ($isCodeNode(node)) {
-          return true;
+          return node.getKey();
         }
         node = node.getParent();
       }
-      return false;
+      return null;
     };
+
+    const $isInsideCodeBlock = (): boolean =>
+      $getEnclosingCodeBlockKey() !== null;
 
     const $isInsideInlineCode = (): boolean => {
       const selection = $getSelection();
@@ -464,7 +460,7 @@ export function AccessibilityPlugin({
         /<(blockquote)\b/i, // Quotes
         /<a\s+href/i, // Links with href
       ];
-      return richPatterns.some((p) => p.test(html));
+      return richPatterns.some(p => p.test(html));
     };
 
     const unregisterPaste = editor.registerCommand(
@@ -526,7 +522,7 @@ export function AccessibilityPlugin({
     );
 
     const unregisterUpdate = editor.registerUpdateListener(
-      ({editorState, dirtyLeaves, tags}) => {
+      ({editorState, prevEditorState, dirtyLeaves, tags}) => {
         // Skip all announcements if suppress tag is present
         if (tags.has(SUPPRESS_A11Y_ANNOUNCEMENTS_TAG)) {
           clearPendingOperation();
@@ -572,13 +568,23 @@ export function AccessibilityPlugin({
         editorState.read(() => {
           if (mergedConfig.announceStructural) {
             // Track code block transitions
-            const isInCodeBlock = $isInsideCodeBlock();
+            const codeBlockKey = $getEnclosingCodeBlockKey();
+            const isInCodeBlock = codeBlockKey !== null;
             const wasInCodeBlock = wasInCodeBlockRef.current;
+
+            // Writing a code block lands the caret in it, so creating one
+            // would otherwise announce twice: codeBlockConfig's "Code block
+            // started" from the mutation listener, then "Code block entered"
+            // from here. "started" is the one that describes what the user
+            // just did, so only announce entry into a pre-existing block.
+            const isNewCodeBlock =
+              codeBlockKey !== null &&
+              prevEditorState.read(() => $getNodeByKey(codeBlockKey)) === null;
 
             // Announce code block transitions
             if (wasInCodeBlock && !isInCodeBlock) {
               announce('Code block exited');
-            } else if (!wasInCodeBlock && isInCodeBlock) {
+            } else if (!wasInCodeBlock && isInCodeBlock && !isNewCodeBlock) {
               announce('Code block entered');
             }
 
@@ -673,10 +679,10 @@ export function AccessibilityPlugin({
               // This is more reliable than sibling traversal
               const children = root.getChildren();
               const prevIndex = children.findIndex(
-                (c) => c.getKey() === previousBlockKey,
+                c => c.getKey() === previousBlockKey,
               );
               const currIndex = children.findIndex(
-                (c) => c.getKey() === currentBlockKey,
+                c => c.getKey() === currentBlockKey,
               );
 
               if (prevIndex !== -1 && currIndex !== -1) {
@@ -713,7 +719,7 @@ export function AccessibilityPlugin({
         }
 
         editorState.read(() => {
-          dirtyLeaves.forEach((leafKey) => {
+          dirtyLeaves.forEach(leafKey => {
             const node = $getNodeByKey(leafKey);
             if (!node || !$isTextNode(node)) {
               return;
