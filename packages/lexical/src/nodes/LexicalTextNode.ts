@@ -37,15 +37,25 @@ import {
   TEXT_TYPE_TO_FORMAT,
   TEXT_TYPE_TO_MODE,
 } from '../LexicalConstants';
+import {GENERATED_TEXT} from '../LexicalGeneratedJSON';
 import {
   type DOMConversionOutput,
   type DOMExportOutput,
   LexicalNode,
-  type LexicalUpdateJSON,
+  type LexicalParseJSON,
   type NodeKey,
   type SerializedLexicalNode,
+  type SerializedPartial,
 } from '../LexicalNode';
 import {$cloneNodeState} from '../LexicalNodeState';
+import {
+  aliasedValue,
+  enumValue,
+  nodeSchema,
+  numberValue,
+  stringValue,
+  withField,
+} from '../LexicalSchema';
 import {
   $generateNodesFromRawText,
   $getSelection,
@@ -70,6 +80,7 @@ import {
   isDOMTextNode,
   isHTMLElement,
   isInlineDomNode,
+  removeEmptyDOMAttribute,
   toggleTextFormatType,
 } from '../LexicalUtils';
 import {setDOMStyleFromCSS} from '../utils/setDOMStyle';
@@ -105,6 +116,49 @@ export type TextModeType = 'normal' | 'token' | 'segmented';
 export type TextMark = {end: null | number; id: string; start: null | number};
 
 export type TextMarks = TextMark[];
+
+// Single source of truth for parsing the node-specific properties of a
+// SerializedTextNode; declared on the node via `$config`.
+//
+// Every property here *is* one of TextNode's own fields in both directions, so
+// each is declared as the field it is rather than as the accessor pair that
+// wraps it — a read and a write with no method call, and none of the
+// getWritable() a set<Prop> repeats for a node updateFromJSON already holds
+// writable. Each names the accessor it stands in for, so a subclass that
+// overrides one is still the one that decides: see {@link SchemaFieldBase.method}.
+//
+// Nothing here is a transformValue, which is what lets the codegen emit a
+// specialized parser for this class: every domain is stated as data the
+// generator can compile — the alias tables below, and mode's setterTable/getterTable.
+const textNodeSchema = nodeSchema<TextNode>()({
+  // `format` and `detail` also accept the legacy string names that
+  // hand-authored and older documents carry (e.g. `format: 'bold'`),
+  // normalized to the stored numeric form — so what reaches the field is
+  // already what setDetail/setFormat would have stored.
+  detail: withField(aliasedValue(numberValue(), DETAIL_TYPE_TO_DETAIL), {
+    field: '__detail',
+  }),
+  format: withField(aliasedValue(numberValue(), TEXT_TYPE_TO_FORMAT), {
+    field: '__format',
+  }),
+  // Stored as a bitmask, serialized as the name, so this one needs both
+  // tables to stay off the accessors.
+  mode: withField(enumValue(['normal', 'token', 'segmented']), {
+    field: '__mode',
+    getterTable: TEXT_TYPE_TO_MODE,
+    setterTable: TEXT_MODE_TO_TYPE,
+  }),
+  style: withField(stringValue(), {
+    field: '__style',
+  }),
+  // The accessors are getTextContent/setTextContent rather than the
+  // conventional getText/setText, which TextNode does not have.
+  text: withField(stringValue(), {
+    field: '__text',
+    getter: 'getTextContent',
+    setter: 'setTextContent',
+  }),
+});
 
 function getElementOuterTag(node: TextNode, format: number): string | null {
   if (format & IS_CODE) {
@@ -198,6 +252,7 @@ function setTextThemeClassNames(
       }
     }
   }
+  removeEmptyDOMAttribute(dom, 'class');
 }
 
 function diffComposedText(a: string, b: string): [number, number, string] {
@@ -300,6 +355,9 @@ function $wrapElementWith(
 
 // eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging
 export interface TextNode {
+  exportJSON(compact?: false): SerializedTextNode;
+  exportJSON(compact: boolean): SerializedPartial<SerializedTextNode>;
+  updateFromJSON(serializedNode: LexicalParseJSON<SerializedTextNode>): this;
   getTopLevelElement(): ElementNode | null;
   getTopLevelElementOrThrow(): ElementNode;
 }
@@ -314,6 +372,7 @@ export interface InlineFormattableNode {
   toggleFormat(type: TextFormatType): unknown;
 }
 
+/** Returns true if the given node supports inline text formatting. */
 export function $isInlineFormattable(
   node: (LexicalNode & {__isInlineFormattable?: unknown}) | null | undefined,
 ): node is LexicalNode & InlineFormattableNode {
@@ -342,6 +401,8 @@ export class TextNode extends LexicalNode implements InlineFormattableNode {
 
   $config() {
     return this.config('text', {
+      extends: LexicalNode,
+      generated: GENERATED_TEXT,
       importDOM: {
         '#text': () => ({
           conversion: $convertTextDOMNode,
@@ -392,16 +453,8 @@ export class TextNode extends LexicalNode implements InlineFormattableNode {
           priority: 0,
         }),
       },
+      json: textNodeSchema,
     });
-  }
-
-  afterCloneFrom(prevNode: this): void {
-    super.afterCloneFrom(prevNode);
-    this.__text = prevNode.__text;
-    this.__format = prevNode.__format;
-    this.__style = prevNode.__style;
-    this.__mode = prevNode.__mode;
-    this.__detail = prevNode.__detail;
   }
 
   constructor(text: string = '', key?: NodeKey) {
@@ -526,7 +579,8 @@ export class TextNode extends LexicalNode implements InlineFormattableNode {
    * @returns true if the node is simple text, false otherwise.
    */
   isSimpleText(): boolean {
-    return this.__type === 'text' && this.__mode === 0;
+    const self = this.getLatest();
+    return self.__type === 'text' && self.__mode === 0;
   }
 
   /**
@@ -649,18 +703,9 @@ export class TextNode extends LexicalNode implements InlineFormattableNode {
     const nextStyle = this.__style;
     if (prevStyle !== nextStyle) {
       setDOMStyleFromCSS(dom.style, nextStyle, prevStyle);
+      removeEmptyDOMAttribute(dom, 'style');
     }
     return false;
-  }
-
-  updateFromJSON(serializedNode: LexicalUpdateJSON<SerializedTextNode>): this {
-    return super
-      .updateFromJSON(serializedNode)
-      .setTextContent(serializedNode.text)
-      .setFormat(serializedNode.format)
-      .setDetail(serializedNode.detail)
-      .setMode(serializedNode.mode)
-      .setStyle(serializedNode.style);
   }
 
   // This improves Lexical's basic text output in copy+paste plus
@@ -701,20 +746,6 @@ export class TextNode extends LexicalNode implements InlineFormattableNode {
 
     return {
       element,
-    };
-  }
-
-  exportJSON(): SerializedTextNode {
-    return {
-      detail: this.getDetail(),
-      format: this.getFormat(),
-      mode: this.getMode(),
-      style: this.getStyle(),
-      text: this.getTextContent(),
-      // As an exception here we invoke super at the end for historical reasons.
-      // Namely, to preserve the order of the properties and not to break the tests
-      // that use the serialized string representation.
-      ...super.exportJSON(),
     };
   }
 
@@ -825,7 +856,7 @@ export class TextNode extends LexicalNode implements InlineFormattableNode {
    */
   setMode(type: TextModeType): this {
     const mode = TEXT_MODE_TO_TYPE[type];
-    if (this.__mode === mode) {
+    if (this.getLatest().__mode === mode) {
       return this;
     }
     const self = this.getWritable();
@@ -841,7 +872,7 @@ export class TextNode extends LexicalNode implements InlineFormattableNode {
    * @returns this TextNode.
    */
   setTextContent(text: string): this {
-    if (this.__text === text) {
+    if (this.getLatest().__text === text) {
       return this;
     }
     const self = this.getWritable();
@@ -1391,10 +1422,12 @@ function convertTextFormatElement(domNode: HTMLElement): DOMConversionOutput {
   };
 }
 
+/** Creates a TextNode initialized with the given text, defaulting to empty. */
 export function $createTextNode(text = ''): TextNode {
   return $applyNodeReplacement(new TextNode(text));
 }
 
+/** Returns true if the given node is a TextNode. */
 export function $isTextNode(
   node: LexicalNode | null | undefined,
 ): node is TextNode {
@@ -1417,6 +1450,9 @@ function applyTextFormatFromStyle(
   const hasUnderlineTextDecoration = textDecoration.includes('underline');
   // Google Docs uses span tags + vertical-align to specify subscript and superscript
   const verticalAlign = style.verticalAlign;
+  // TextNode.exportDOM writes text-transform for the capitalization formats,
+  // so read it back here or they are lost on every HTML round trip (#8915).
+  const textTransform = style.textTransform;
 
   return (lexicalNode: LexicalNode) => {
     if (!$isTextNode(lexicalNode) && !$isInlineFormattable(lexicalNode)) {
@@ -1442,6 +1478,14 @@ function applyTextFormatFromStyle(
     }
     if (verticalAlign === 'super' && !lexicalNode.hasFormat('superscript')) {
       lexicalNode.toggleFormat('superscript');
+    }
+    if (
+      (textTransform === 'lowercase' ||
+        textTransform === 'uppercase' ||
+        textTransform === 'capitalize') &&
+      !lexicalNode.hasFormat(textTransform)
+    ) {
+      lexicalNode.toggleFormat(textTransform);
     }
 
     if (shouldApply && !lexicalNode.hasFormat(shouldApply)) {

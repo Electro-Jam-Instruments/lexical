@@ -26,9 +26,8 @@ import {
 import {
   type FootnoteDefinition,
   type FootnoteReference,
-  MdastExportExtension,
   type MdastExportHandler,
-  MdastImportExtension,
+  MdastExtension,
   type MdastImportHandler,
   type PhrasingContent,
   RenderContextMarkdownSelection,
@@ -64,6 +63,7 @@ import {
   COMMAND_PRIORITY_BEFORE_EDITOR,
   COMMAND_PRIORITY_EDITOR,
   configExtension,
+  CONTROL_OR_META,
   createCommand,
   createState,
   defineExtension,
@@ -72,7 +72,6 @@ import {
   type ElementDOMSlot,
   ElementNode,
   HISTORIC_TAG,
-  IS_APPLE,
   isExactShortcutMatch,
   isHTMLElement,
   KEY_DOWN_COMMAND,
@@ -845,7 +844,7 @@ const footnotesRootHandler = {
     root: (node, parent, state, info) => {
       const footnotes = $getSlot($getRoot(), FOOTNOTES_SLOT);
       if ($isFootnotesNode(footnotes) && !footnotes.isEmpty()) {
-        const {$convertToMdast} = $getExtensionOutput(MdastExportExtension);
+        const {$convertToMdast} = $getExtensionOutput(MdastExtension);
         // On a whole-document export ALL definitions ride along, in section
         // order — an editor preserves content, unlike a renderer, so
         // unreferenced definitions survive the round trip too. A selection
@@ -1133,18 +1132,21 @@ export const MdastFootnoteExtension = defineExtension({
     configExtension(DOMRenderExtension, {
       overrides: [FootnotesRenderOverride],
     }),
-    configExtension(MdastImportExtension, {
+    configExtension(MdastExtension, {
       exportRules: [
-        {$export: $exportFootnoteRef, type: 'footnote-ref'},
-        {$export: $exportFootnoteDefinition, type: 'footnote-def'},
+        {$export: $exportFootnoteRef, type: FootnoteRefNode},
+        {$export: $exportFootnoteDefinition, type: FootnoteDefinitionNode},
       ],
       importRules: [
         {$import: $importFootnoteReference, type: 'footnoteReference'},
         {$import: $importFootnoteDefinition, type: 'footnoteDefinition'},
       ],
-      mdastExtensions: [gfmFootnoteFromMarkdown()],
-      micromarkExtensions: [gfmFootnote()],
-      toMarkdownExtensions: [gfmFootnoteToMarkdown(), footnotesRootHandler],
+      mdastExtensions: [/* @__PURE__ */ gfmFootnoteFromMarkdown()],
+      micromarkExtensions: [/* @__PURE__ */ gfmFootnote()],
+      toMarkdownExtensions: [
+        /* @__PURE__ */ gfmFootnoteToMarkdown(),
+        footnotesRootHandler,
+      ],
     }),
   ],
   name: '@lexical/dev-mdast-editor-example/MdastFootnote',
@@ -1159,9 +1161,8 @@ export const MdastFootnoteExtension = defineExtension({
           if (
             editor.isEditable() &&
             isExactShortcutMatch(event, 'f', {
+              ...CONTROL_OR_META,
               altKey: true,
-              ctrlKey: !IS_APPLE,
-              metaKey: IS_APPLE,
             })
           ) {
             event.preventDefault();

@@ -116,11 +116,15 @@ describe('LexicalElementNode tests', () => {
         // logic is in place in the corresponding importJSON  method
         // to accommodate these changes.
 
+        // Present-with-undefined, not absent: a getter with nothing to say
+        // puts undefined in the value position, which JSON.stringify omits.
         expect(node.exportJSON()).toStrictEqual({
           children: [],
           direction: null,
           format: '',
           indent: 0,
+          textFormat: undefined,
+          textStyle: undefined,
           type: 'test_block',
           version: 1,
         });
@@ -138,7 +142,9 @@ describe('LexicalElementNode tests', () => {
           );
       });
       editor.read(() => {
-        expect(editor.toJSON().editorState.root.children[0]).toEqual({
+        // `children` is optional on the compact shape SerializedEditor promises;
+        // this export is the legacy form, so it is there.
+        expect(editor.toJSON().editorState.root.children![0]).toEqual({
           children: [
             {
               detail: 0,
@@ -712,6 +718,47 @@ describe('LexicalElementNode tests', () => {
         expectedTransforms.forEach(key => {
           expect(transforms).toContain(key);
         });
+      });
+    });
+
+    // The assertions run inside the same update as the splice so that a
+    // failure aborts before a corrupt sibling list can reach the reconciler.
+    it('Re-inserting the node after the range does not create a cycle', async () => {
+      await update(() => {
+        const [first, second, third] = block.getChildren();
+
+        // A no-op splice: the node already sits at this position.
+        block.splice(1, 0, [second]);
+
+        // Checked before any sibling walk so a cycle fails fast.
+        expect(second.getNextSibling()!.getKey()).toEqual(third.getKey());
+        expect(block.getChildrenSize()).toEqual(3);
+        expect(block.getChildrenKeys()).toEqual([
+          first.getKey(),
+          second.getKey(),
+          third.getKey(),
+        ]);
+        expect(block.getLastChild()!.getKey()).toEqual(third.getKey());
+        expect(block.getTextContent()).toEqual('FooBarBaz');
+      });
+    });
+
+    it('Replacing a node with a later sibling does not create a cycle', async () => {
+      await update(() => {
+        const [first, , third] = block.getChildren();
+
+        // Delete "Bar" and move "Baz" into its place.
+        block.splice(1, 1, [third]);
+
+        // Checked before any sibling walk so a cycle fails fast.
+        expect(third.getNextSibling()).toBe(null);
+        expect(block.getChildrenSize()).toEqual(2);
+        expect(block.getChildrenKeys()).toEqual([
+          first.getKey(),
+          third.getKey(),
+        ]);
+        expect(block.getLastChild()!.getKey()).toEqual(third.getKey());
+        expect(block.getTextContent()).toEqual('FooBaz');
       });
     });
   });

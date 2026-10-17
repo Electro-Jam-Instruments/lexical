@@ -24,9 +24,11 @@ import {
   $createRangeSelection,
   $extendCaretToRange,
   $getChildCaret,
+  $getDocument,
   $getRoot,
   $isElementNode,
   $isParagraphNode,
+  booleanValue,
   configExtension,
   DecoratorNode,
   defineExtension,
@@ -34,12 +36,18 @@ import {
   type EditorConfig,
   type LexicalEditorWithDispose,
   type LexicalNode,
-  type LexicalUpdateJSON,
   type NodeKey,
+  nodeSchema,
+  numberValue,
+  optional,
   type RangeSelection,
+  rawValue,
   type SerializedEditor,
   type SerializedLexicalNode,
   type Spread,
+  stringValue,
+  withAccessors,
+  withField,
 } from 'lexical';
 import * as React from 'react';
 
@@ -51,7 +59,7 @@ import {KeywordsExtension} from './KeywordNode';
 
 const ImageComponent = React.lazy(() => import('./ImageComponent'));
 
-const CaptionEditorExtension = /* @__PURE__ */ defineExtension({
+const CaptionEditorExtension = defineExtension({
   // Skip the default empty-paragraph initializer. In collab mode
   // CollaborationPlugin's bootstrap only runs `initializeEditor` when
   // the Lexical root is empty, so a pre-seeded paragraph would prevent
@@ -70,7 +78,7 @@ const CaptionEditorExtension = /* @__PURE__ */ defineExtension({
     LinkExtension,
     KeywordsExtension,
     EmojisExtension,
-    /* @__PURE__ */ configExtension(ReactExtension, {
+    configExtension(ReactExtension, {
       contentEditable: (
         <ContentEditable
           placeholder="Enter a caption..."
@@ -124,6 +132,27 @@ export type SerializedImageNode = Spread<
   SerializedLexicalNode
 >;
 
+const imageNodeSchema = nodeSchema<ImageNode>()({
+  altText: stringValue(),
+  caption: withAccessors(rawValue<SerializedEditor>(), {
+    getter: 'getSerializedCaption',
+  }),
+  // An unsized dimension is the 'inherit' sentinel, which has always
+  // serialized as 0 (and parses back through `|| 'inherit'`).
+  height: withAccessors(optional(numberValue()), {
+    getter: 'getSerializedHeight',
+  }),
+  // Read straight from the field, but applied through setMaxWidth: an absent
+  // `maxWidth` parses to `undefined`, and the setter reads that as "keep the
+  // constructor's default" rather than as a value to store.
+  maxWidth: withAccessors(optional(numberValue()), {
+    getter: {field: '__maxWidth'},
+  }),
+  showCaption: withField(booleanValue(), {field: '__showCaption'}),
+  src: stringValue(),
+  width: withAccessors(optional(numberValue()), {getter: 'getSerializedWidth'}),
+});
+
 export class ImageNode extends DecoratorNode<JSX.Element> {
   __src: string;
   __altText: string;
@@ -136,7 +165,10 @@ export class ImageNode extends DecoratorNode<JSX.Element> {
   __captionsEnabled: boolean;
 
   $config() {
-    return this.config('image', {extends: DecoratorNode});
+    return this.config('image', {
+      extends: DecoratorNode,
+      json: imageNodeSchema,
+    });
   }
 
   static clone(node: ImageNode): ImageNode {
@@ -153,32 +185,44 @@ export class ImageNode extends DecoratorNode<JSX.Element> {
     );
   }
 
-  static importJSON(serializedNode: SerializedImageNode): ImageNode {
-    const {altText, height, width, maxWidth, src, showCaption} = serializedNode;
-    return $createImageNode({
-      altText,
-      height,
-      maxWidth,
-      showCaption,
-      src,
-      width,
-    }).updateFromJSON(serializedNode);
+  /** @internal The nested caption editor's own serialized state. */
+  getSerializedCaption(): SerializedEditor {
+    return this.getLatest().__caption.toJSON();
   }
 
-  updateFromJSON(serializedNode: LexicalUpdateJSON<SerializedImageNode>): this {
-    const node = super.updateFromJSON(serializedNode);
-    const {caption} = serializedNode;
+  /** @internal 'inherit' has always serialized as 0. */
+  getSerializedWidth(): number {
+    const width = this.getLatest().__width;
+    return width === 'inherit' ? 0 : width;
+  }
 
-    const nestedEditor = node.__caption;
-    const editorState = nestedEditor.parseEditorState(caption.editorState);
-    if (!editorState.isEmpty()) {
-      nestedEditor.setEditorState(editorState);
+  /** @internal */
+  getSerializedHeight(): number {
+    const height = this.getLatest().__height;
+    return height === 'inherit' ? 0 : height;
+  }
+
+  /**
+   * Apply a serialized nested caption editor. The nested editor's own
+   * `parseEditorState` owns validation of the payload, which is why the `json`
+   * schema declares the property with {@link rawValue} rather than describing
+   * its shape. An empty parsed state is ignored so it does not clobber the
+   * caption the node was created with.
+   */
+  setCaption(caption: SerializedEditor | undefined): this {
+    const self = this.getWritable();
+    if (caption) {
+      const nestedEditor = self.__caption;
+      const editorState = nestedEditor.parseEditorState(caption.editorState);
+      if (!editorState.isEmpty()) {
+        nestedEditor.setEditorState(editorState);
+      }
     }
-    return node;
+    return self;
   }
 
   exportDOM(): DOMExportOutput {
-    const imgElement = document.createElement('img');
+    const imgElement = $getDocument().createElement('img');
     imgElement.setAttribute('src', this.__src);
     imgElement.setAttribute('alt', this.__altText);
     imgElement.setAttribute('width', this.__width.toString());
@@ -208,8 +252,8 @@ export class ImageNode extends DecoratorNode<JSX.Element> {
         return $generateHtmlFromNodes(captionEditor, selection);
       });
       if (captionHtml) {
-        const figureElement = document.createElement('figure');
-        const figcaptionElement = document.createElement('figcaption');
+        const figureElement = $getDocument().createElement('figure');
+        const figcaptionElement = $getDocument().createElement('figcaption');
         figcaptionElement.innerHTML = captionHtml;
 
         figureElement.appendChild(imgElement);
@@ -222,10 +266,45 @@ export class ImageNode extends DecoratorNode<JSX.Element> {
     return {element: imgElement};
   }
 
+  setSrc(src: string): this {
+    const self = this.getWritable();
+    self.__src = src;
+    return self;
+  }
+
+  setAltText(altText: string): this {
+    const self = this.getWritable();
+    self.__altText = altText;
+    return self;
+  }
+
+  setMaxWidth(maxWidth: number | undefined): this {
+    const self = this.getWritable();
+    self.__maxWidth = maxWidth === undefined ? self.__maxWidth : maxWidth;
+    return self;
+  }
+
+  // `width`/`height` are absent from the JSON when the image is unsized, which
+  // is stored as the sentinel 'inherit'.
+  // An unsized image serializes as 0 (and older documents may omit the
+  // property), both of which restore the 'inherit' sentinel — the same
+  // mapping the constructor's `width || 'inherit'` has always applied.
+  setWidth(width: number | undefined): this {
+    const self = this.getWritable();
+    self.__width = width || 'inherit';
+    return self;
+  }
+
+  setHeight(height: number | undefined): this {
+    const self = this.getWritable();
+    self.__height = height || 'inherit';
+    return self;
+  }
+
   constructor(
-    src: string,
-    altText: string,
-    maxWidth: number,
+    src: string = '',
+    altText: string = '',
+    maxWidth: number = 500,
     width?: 'inherit' | number,
     height?: 'inherit' | number,
     showCaption?: boolean,
@@ -243,19 +322,6 @@ export class ImageNode extends DecoratorNode<JSX.Element> {
     this.__caption =
       caption || buildEditorFromExtensions(CaptionEditorExtension);
     this.__captionsEnabled = captionsEnabled !== false;
-  }
-
-  exportJSON(): SerializedImageNode {
-    return {
-      ...super.exportJSON(),
-      altText: this.getAltText(),
-      caption: this.__caption.toJSON(),
-      height: this.__height === 'inherit' ? 0 : this.__height,
-      maxWidth: this.__maxWidth,
-      showCaption: this.__showCaption,
-      src: this.getSrc(),
-      width: this.__width === 'inherit' ? 0 : this.__width,
-    };
   }
 
   setWidthAndHeight(
@@ -277,7 +343,7 @@ export class ImageNode extends DecoratorNode<JSX.Element> {
   // View
 
   createDOM(config: EditorConfig): HTMLElement {
-    const span = document.createElement('span');
+    const span = $getDocument().createElement('span');
     const theme = config.theme;
     const className = theme.image;
     if (className !== undefined) {

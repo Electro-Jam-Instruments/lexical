@@ -158,16 +158,19 @@ export function createRectsFromDOMRange(
   let prevRect;
   for (let i = 0; i < selectionRectsLength; i++) {
     const selectionRect = selectionRects[i];
-    // Exclude rects that overlap preceding Rects in the sorted list.
-    const isOverlappingRect =
+    // Only discard a rect whose entire area is already covered. Mixed font
+    // metrics can put a later run before an earlier one in the sorted list,
+    // and partially overlapping rects can each cover unique selected text.
+    const isContainedRect =
       prevRect &&
       prevRect.top <= selectionRect.top &&
-      prevRect.top + prevRect.height > selectionRect.top &&
-      prevRect.left + prevRect.width > selectionRect.left;
+      prevRect.bottom >= selectionRect.bottom &&
+      prevRect.left <= selectionRect.left &&
+      prevRect.right >= selectionRect.right;
     // Exclude selections that span the entire element
     const selectionSpansElement =
       selectionRect.width + rootPadding === rootRect.width;
-    if (isOverlappingRect || selectionSpansElement) {
+    if (isContainedRect || selectionSpansElement) {
       selectionRects.splice(i--, 1);
       selectionRectsLength--;
       continue;
@@ -223,13 +226,18 @@ export function $getComputedStyleForElement(
 /**
  * Gets the computed DOM styles of the parent of the node.
  * @param node - The node to check its parent's styles for.
- * @returns the computed styles of the node or null if there is no DOM element or no default view for the document.
+ * @returns the computed styles of the node, or null if the node has no parent,
+ * there is no DOM element, or there is no default view for the document.
  */
 export function $getComputedStyleForParent(
   node: LexicalNode,
 ): CSSStyleDeclaration | null {
-  const parent = $isRootNode(node) ? node : node.getParentOrThrow();
-  return $getComputedStyleForElement(parent);
+  // A named-slot value has no parent — it links up to its host through
+  // __slotHost — so there is no parent element to measure. Detached nodes are
+  // parentless too. Treat both like a missing DOM element rather than
+  // throwing; every caller already handles null.
+  const parent = $isRootNode(node) ? node : node.getParent();
+  return parent && $getComputedStyleForElement(parent);
 }
 
 /**

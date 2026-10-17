@@ -12,10 +12,12 @@ import {
   horizontalRuleConfig,
   listItemConfig,
 } from '@lexical/accessibility';
+import {getExtensionDependencyFromEditor, signal} from '@lexical/extension';
 import {CharacterLimitPlugin} from '@lexical/react/LexicalCharacterLimitPlugin';
 import {useLexicalComposerContext} from '@lexical/react/LexicalComposerContext';
+import {useSignalValue} from '@lexical/react/useExtensionSignalValue';
 import {CAN_USE_DOM, registerEventListener} from 'lexical';
-import {type JSX, useEffect, useState} from 'react';
+import {type JSX, useCallback, useEffect, useMemo, useState} from 'react';
 
 import {createWebsocketProvider} from './collaboration';
 import {useSettings} from './context/SettingsContext';
@@ -33,7 +35,7 @@ import FloatingLinkEditorPlugin from './plugins/FloatingLinkEditorPlugin';
 import FloatingTextFormatToolbarPlugin from './plugins/FloatingTextFormatToolbarPlugin';
 import {MentionsPlugin} from './plugins/MentionsExtension';
 import FloatingRubyEditorPlugin from './plugins/RubyExtension/FloatingRubyEditor';
-import ShortcutsPlugin from './plugins/ShortcutsPlugin';
+import {ShortcutsExtension} from './plugins/ShortcutsExtension';
 import SpeechToTextPlugin from './plugins/SpeechToTextPlugin';
 import TableCellActionMenuPlugin from './plugins/TableActionMenuPlugin';
 import TableCellResizer from './plugins/TableCellResizer';
@@ -85,7 +87,29 @@ export default function Editor(): JSX.Element {
     useState<boolean>(false);
   const [editor] = useLexicalComposerContext();
   const [activeEditor, setActiveEditor] = useState(editor);
-  const [isLinkEditMode, setIsLinkEditMode] = useState<boolean>(false);
+  // The link edit mode state lives on the ShortcutsExtension output so the
+  // insert-link keyboard shortcut can set it without any React coupling
+  // (the extension is only present in rich text configurations)
+  const isLinkEditModeSignal = useMemo(
+    () =>
+      isRichText
+        ? getExtensionDependencyFromEditor(editor, ShortcutsExtension).output
+            .isLinkEditMode
+        : signal(false),
+    [editor, isRichText],
+  );
+  const isLinkEditMode = useSignalValue(isLinkEditModeSignal);
+  const setIsLinkEditMode = useCallback(
+    (nextIsLinkEditMode: boolean) => {
+      if (isRichText) {
+        getExtensionDependencyFromEditor(
+          editor,
+          ShortcutsExtension,
+        ).output.isLinkEditMode.value = nextIsLinkEditMode;
+      }
+    },
+    [editor, isRichText],
+  );
   const [isRubyEditMode, setIsRubyEditMode] = useState<boolean>(false);
 
   const onRef = (_floatingAnchorElem: HTMLDivElement) => {
@@ -116,12 +140,6 @@ export default function Editor(): JSX.Element {
           setActiveEditor={setActiveEditor}
           setIsLinkEditMode={setIsLinkEditMode}
           setIsRubyEditMode={setIsRubyEditMode}
-        />
-      )}
-      {isRichText && (
-        <ShortcutsPlugin
-          editor={activeEditor}
-          setIsLinkEditMode={setIsLinkEditMode}
         />
       )}
       <div

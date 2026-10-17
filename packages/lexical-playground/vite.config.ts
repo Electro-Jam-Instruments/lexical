@@ -11,9 +11,9 @@ import react from '@vitejs/plugin-react';
 import {defineConfig, type PluginOption, type UserConfig} from 'vite';
 
 import transformErrorMessages from '../../scripts/error-codes/transform-error-messages.mjs';
-import viteMonorepoResolutionPlugin from '../../scripts/vite/lexicalMonorepoPlugin';
-import viteCopyEsm from './viteCopyEsm';
-import viteCopyExcalidrawAssets from './viteCopyExcalidrawAssets';
+import viteMonorepoResolutionPlugin from '../../scripts/vite/lexicalMonorepoPlugin.ts';
+import viteCopyEsm from './viteCopyEsm.ts';
+import viteCopyExcalidrawAssets from './viteCopyExcalidrawAssets.ts';
 
 // react() returns Plugin[]; widening it to PluginOption[] here lets the plugins
 // array below infer as PluginOption[] (every other entry is a Plugin, which is
@@ -47,7 +47,6 @@ export default defineConfig(
           }
         : {minify: false}),
     },
-    server: {host: true, port: 2112, strictPort: true},
     plugins: [
       viteMonorepoResolutionPlugin(),
       babel({
@@ -75,5 +74,6 @@ export default defineConfig(
       ...viteCopyExcalidrawAssets(),
       viteCopyEsm(),
     ],
+    server: {host: true, port: 2112, strictPort: true},
   }),
 );

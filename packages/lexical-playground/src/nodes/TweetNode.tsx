@@ -6,23 +6,34 @@
  *
  */
 
-import type {
-  DOMExportOutput,
-  EditorConfig,
-  ElementFormatType,
-  LexicalEditor,
-  LexicalNode,
-  NodeKey,
-  Spread,
-} from 'lexical';
-
 import {BlockWithAlignableContents} from '@lexical/react/LexicalBlockWithAlignableContents';
 import {
   DecoratorBlockNode,
   type SerializedDecoratorBlockNode,
 } from '@lexical/react/LexicalDecoratorBlockNode';
+import {
+  $getDocument,
+  type DOMExportOutput,
+  type EditorConfig,
+  type ElementFormatType,
+  type LexicalEditor,
+  type LexicalNode,
+  type NodeKey,
+  nodeSchema,
+  type Spread,
+  stringValue,
+  withAccessors,
+} from 'lexical';
 import * as React from 'react';
 import {type JSX, useCallback, useEffect, useRef, useState} from 'react';
+
+const tweetNodeSchema = nodeSchema<TweetNode>()({
+  id: withAccessors(stringValue(), {
+    getter: {
+      field: '__id',
+    },
+  }),
+});
 
 const WIDGET_SCRIPT_URL = 'https://platform.twitter.com/widgets.js';
 
@@ -78,10 +89,11 @@ function TweetComponent({
       setIsTweetLoading(true);
 
       if (isTwitterScriptLoading) {
-        const script = document.createElement('script');
+        const doc = containerRef.current?.ownerDocument ?? document;
+        const script = doc.createElement('script');
         script.src = WIDGET_SCRIPT_URL;
         script.async = true;
-        document.body?.appendChild(script);
+        doc.body?.appendChild(script);
         script.onload = createTweet;
         if (onError) {
           script.onerror = onError as OnErrorEventHandler;
@@ -122,33 +134,31 @@ export class TweetNode extends DecoratorBlockNode {
   __id: string;
 
   $config() {
-    return this.config('tweet', {extends: DecoratorBlockNode});
+    return this.config('tweet', {
+      extends: DecoratorBlockNode,
+      json: tweetNodeSchema,
+    });
   }
 
   static clone(node: TweetNode): TweetNode {
     return new TweetNode(node.__id, node.__format, node.__key);
   }
 
-  static importJSON(serializedNode: SerializedTweetNode): TweetNode {
-    return $createTweetNode(serializedNode.id).updateFromJSON(serializedNode);
-  }
-
-  exportJSON(): SerializedTweetNode {
-    return {
-      ...super.exportJSON(),
-      id: this.getId(),
-    };
-  }
-
   exportDOM(): DOMExportOutput {
-    const element = document.createElement('div');
+    const element = $getDocument().createElement('div');
     element.setAttribute('data-lexical-tweet-id', this.__id);
-    const text = document.createTextNode(this.getTextContent());
+    const text = $getDocument().createTextNode(this.getTextContent());
     element.append(text);
     return {element};
   }
 
-  constructor(id: string, format?: ElementFormatType, key?: NodeKey) {
+  setId(id: string): this {
+    const self = this.getWritable();
+    self.__id = id;
+    return self;
+  }
+
+  constructor(id: string = '', format?: ElementFormatType, key?: NodeKey) {
     super(format, key);
     this.__id = id;
   }

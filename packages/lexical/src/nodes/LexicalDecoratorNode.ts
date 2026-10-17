@@ -44,6 +44,10 @@ export class DecoratorNode<T>
     this.__slots = null;
   }
 
+  // Written rather than synthesized from the schema, for ElementNode's
+  // reason: `__slotHost` is structure rather than a serialized property, and
+  // it belongs to the node's place in the tree, so a clone under a new key
+  // must not adopt it.
   afterCloneFrom(prevNode: this): void {
     super.afterCloneFrom(prevNode);
     if (this.__key === prevNode.__key) {
@@ -69,6 +73,15 @@ export class DecoratorNode<T>
     return null;
   }
 
+  /**
+   * Whether this decorator is isolated from caret interaction: an isolated
+   * decorator can not be traversed, extended over, selected as a node, or
+   * deleted by an adjacent caret operation. A caret that reaches one stops
+   * there, so an inline isolated decorator is only reachable by pointer.
+   *
+   * Defaults to false, which lets the caret step over the decorator (and
+   * select it, when {@link DecoratorNode.isKeyboardSelectable} is also true).
+   */
   isIsolated(): boolean {
     return false;
   }
@@ -82,6 +95,7 @@ export class DecoratorNode<T>
   }
 }
 
+/** Returns true if the given node is a DecoratorNode. */
 export function $isDecoratorNode<T>(
   node: LexicalNode | null | undefined,
 ): node is DecoratorNode<T> {

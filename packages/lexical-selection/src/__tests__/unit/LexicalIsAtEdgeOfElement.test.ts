@@ -6,7 +6,10 @@
  *
  */
 
-import {buildEditorFromExtensions} from '@lexical/extension';
+import {
+  type AnyLexicalExtensionArgument,
+  buildEditorFromExtensions,
+} from '@lexical/extension';
 import {$createLinkNode, LinkExtension} from '@lexical/link';
 import {$isAtEdgeOfElement} from '@lexical/selection';
 import {
@@ -34,9 +37,9 @@ function $pointAt(
   return selection.anchor;
 }
 
-function $runInEditor(
+function runInEditor(
   fn: () => void,
-  spec: Parameters<typeof buildEditorFromExtensions>[0] = {
+  spec: AnyLexicalExtensionArgument = {
     name: '@isAtEdgeOfElement-test',
   },
 ): void {
@@ -46,7 +49,7 @@ function $runInEditor(
 
 describe('$isAtEdgeOfElement', () => {
   test('text point at the start/end of a block', async () => {
-    $runInEditor(() => {
+    runInEditor(() => {
       const block = $createParagraphNode();
       const text = $createTextNode('hello');
       $getRoot().append(block.append(text));
@@ -76,7 +79,7 @@ describe('$isAtEdgeOfElement', () => {
   });
 
   test('a sibling between the point and the edge disqualifies it', async () => {
-    $runInEditor(() => {
+    runInEditor(() => {
       const block = $createParagraphNode();
       const a = $createTextNode('a');
       const b = $createTextNode('b');
@@ -102,7 +105,7 @@ describe('$isAtEdgeOfElement', () => {
   });
 
   test('descends through nested inline elements', async () => {
-    $runInEditor(
+    runInEditor(
       () => {
         const block = $createParagraphNode();
         const link = $createLinkNode('https://lexical.dev');
@@ -128,7 +131,7 @@ describe('$isAtEdgeOfElement', () => {
   });
 
   test('an empty element is at both of its edges', async () => {
-    $runInEditor(() => {
+    runInEditor(() => {
       const block = $createParagraphNode();
       $getRoot().append(block);
 
@@ -145,7 +148,7 @@ describe('$isAtEdgeOfElement', () => {
   });
 
   test('element points at the leading/trailing child edge', async () => {
-    $runInEditor(() => {
+    runInEditor(() => {
       const block = $createParagraphNode();
       const a = $createTextNode('a');
       const b = $createTextNode('b');
@@ -169,7 +172,7 @@ describe('$isAtEdgeOfElement', () => {
   });
 
   test('a point outside the element is never at its edge', async () => {
-    $runInEditor(() => {
+    runInEditor(() => {
       const block1 = $createParagraphNode();
       const block2 = $createParagraphNode();
       const text1 = $createTextNode('one');
@@ -191,7 +194,7 @@ describe('$isAtEdgeOfElement', () => {
   // a point inside the slot against the slot element — this backs the
   // slot-host backspace / arrow-escape behavior in @lexical/utils.
   test('resolves against a named slot value (slot boundary)', async () => {
-    $runInEditor(
+    runInEditor(
       () => {
         const host = $createParagraphNode();
         const slot = $createTestShadowRootNode();

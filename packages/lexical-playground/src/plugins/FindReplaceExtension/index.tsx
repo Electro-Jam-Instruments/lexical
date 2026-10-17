@@ -23,12 +23,16 @@ import {$dfsWithSlotsIterator} from '@lexical/utils';
 import {
   $getNodeByKeyOrThrow,
   $getRoot,
+  $isBlockElementNode,
+  $isDecoratorNode,
   $isElementNode,
   $isLineBreakNode,
   $isTextNode,
   COMMAND_PRIORITY_LOW,
   configExtension,
+  CONTROL_OR_META,
   createCommand,
+  DecoratorNode,
   defineExtension,
   IS_APPLE,
   isExactShortcutMatch,
@@ -64,12 +68,6 @@ export interface MatchPoints {
   focusOffset: number;
   format: number;
 }
-
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-const CONTROL_OR_META = {ctrlKey: !IS_APPLE, metaKey: IS_APPLE};
 
 // ---------------------------------------------------------------------------
 // Pure functions
@@ -129,19 +127,13 @@ export function expandReplacement(
 export function $buildOffsetMap(): OffsetEntry[] {
   const entries: OffsetEntry[] = [];
   let offset = 0;
-  let prevNonInlineDepth: number | null = null;
 
-  for (const {node, depth} of $dfsWithSlotsIterator()) {
-    if ($isElementNode(node) && !node.isInline() && depth > 0) {
-      if (prevNonInlineDepth !== null && depth <= prevNonInlineDepth) {
-        offset += 2;
-      }
-      prevNonInlineDepth = depth;
+  for (const {node} of $dfsWithSlotsIterator()) {
+    // Handle a preceding non-inline ElementNode's '\n\n'
+    if ($isBlockElementNode(node.getPreviousSibling())) {
+      offset += 2;
     }
-
-    if ($isLineBreakNode(node)) {
-      offset += 1;
-    } else if ($isTextNode(node)) {
+    if ($isTextNode(node)) {
       const len = node.getTextContentSize();
       entries.push({
         globalEnd: offset + len,
@@ -149,9 +141,30 @@ export function $buildOffsetMap(): OffsetEntry[] {
         key: node.__key,
       });
       offset += len;
+    } else if ($isLineBreakNode(node)) {
+      offset += 1;
+    } else if ($isElementNode(node)) {
+      // An override of ElementNode.getTextContent() is ignored here, and would
+      // require a specific handler for the same reasons as DecoratorNode below
+    } else if ($isDecoratorNode(node)) {
+      // The default implementation of DecoratorNode.getTextContent()
+      // only returns the contents of the slots, which are traversed
+      // after this node. We skip calling getTextContentSize for nodes
+      // that use it to avoid double-counting slot text.
+      //
+      // This algorithm would be incorrect for a DecoratorNode that overrides
+      // getTextContentSize and has slots, but the API provides no way for
+      // us to know where the customized text was inserted relative to the
+      // slot text (or if the slot text is represented at all). There are no
+      // DecoratorNodes in the playground that override getTextContent and
+      // have slots, but if you are adapting this to an application that
+      // does you will need to address it accordingly.
+      offset +=
+        node.getTextContent === DecoratorNode.prototype.getTextContent
+          ? 0
+          : node.getTextContentSize();
     }
   }
-
   return entries;
 }
 
@@ -502,41 +515,48 @@ function $updateOverlayHighlights(
 // Commands
 // ---------------------------------------------------------------------------
 
-export const TOGGLE_FIND_REPLACE_COMMAND: LexicalCommand<void> =
-  /* @__PURE__ */ createCommand('TOGGLE_FIND_REPLACE_COMMAND');
+export const TOGGLE_FIND_REPLACE_COMMAND: LexicalCommand<void> = createCommand(
+  'TOGGLE_FIND_REPLACE_COMMAND',
+);
 
-export const CLOSE_FIND_REPLACE_COMMAND: LexicalCommand<void> =
-  /* @__PURE__ */ createCommand('CLOSE_FIND_REPLACE_COMMAND');
+export const CLOSE_FIND_REPLACE_COMMAND: LexicalCommand<void> = createCommand(
+  'CLOSE_FIND_REPLACE_COMMAND',
+);
 
 export const FIND_NEXT_COMMAND: LexicalCommand<void> =
-  /* @__PURE__ */ createCommand('FIND_NEXT_COMMAND');
+  createCommand('FIND_NEXT_COMMAND');
 
 export const FIND_PREV_COMMAND: LexicalCommand<void> =
-  /* @__PURE__ */ createCommand('FIND_PREV_COMMAND');
+  createCommand('FIND_PREV_COMMAND');
 
-export const REPLACE_CURRENT_COMMAND: LexicalCommand<void> =
-  /* @__PURE__ */ createCommand('REPLACE_CURRENT_COMMAND');
+export const REPLACE_CURRENT_COMMAND: LexicalCommand<void> = createCommand(
+  'REPLACE_CURRENT_COMMAND',
+);
 
-export const REPLACE_ALL_COMMAND: LexicalCommand<void> =
-  /* @__PURE__ */ createCommand('REPLACE_ALL_COMMAND');
+export const REPLACE_ALL_COMMAND: LexicalCommand<void> = createCommand(
+  'REPLACE_ALL_COMMAND',
+);
 
-export const SET_SEARCH_TERM_COMMAND: LexicalCommand<string> =
-  /* @__PURE__ */ createCommand('SET_SEARCH_TERM_COMMAND');
+export const SET_SEARCH_TERM_COMMAND: LexicalCommand<string> = createCommand(
+  'SET_SEARCH_TERM_COMMAND',
+);
 
-export const SET_REPLACE_TERM_COMMAND: LexicalCommand<string> =
-  /* @__PURE__ */ createCommand('SET_REPLACE_TERM_COMMAND');
+export const SET_REPLACE_TERM_COMMAND: LexicalCommand<string> = createCommand(
+  'SET_REPLACE_TERM_COMMAND',
+);
 
 export const TOGGLE_CASE_SENSITIVE_COMMAND: LexicalCommand<void> =
-  /* @__PURE__ */ createCommand('TOGGLE_CASE_SENSITIVE_COMMAND');
+  createCommand('TOGGLE_CASE_SENSITIVE_COMMAND');
 
-export const TOGGLE_REGEX_COMMAND: LexicalCommand<void> =
-  /* @__PURE__ */ createCommand('TOGGLE_REGEX_COMMAND');
+export const TOGGLE_REGEX_COMMAND: LexicalCommand<void> = createCommand(
+  'TOGGLE_REGEX_COMMAND',
+);
 
 // ---------------------------------------------------------------------------
 // Extension
 // ---------------------------------------------------------------------------
 
-export const FindReplaceExtension = /* @__PURE__ */ defineExtension({
+export const FindReplaceExtension = defineExtension({
   build: editor => {
     const named = namedSignals({
       caseSensitive: false,
@@ -1001,10 +1021,10 @@ function FindReplacePanel({
   );
 }
 
-export const ReactFindReplaceExtension = /* @__PURE__ */ defineExtension({
+export const ReactFindReplaceExtension = defineExtension({
   dependencies: [
     FindReplaceExtension,
-    /* @__PURE__ */ configExtension(ReactExtension, {
+    configExtension(ReactExtension, {
       decorators: [FindReplacePanel],
     }),
   ],

@@ -8,6 +8,7 @@
 
 import type {KlassConstructor} from '../LexicalEditor';
 
+import {GENERATED_LINEBREAK} from '../LexicalGeneratedJSON';
 import {
   type DOMConversionOutput,
   LexicalNode,
@@ -29,6 +30,8 @@ export class LineBreakNode extends LexicalNode {
 
   $config() {
     return this.config('linebreak', {
+      extends: LexicalNode,
+      generated: GENERATED_LINEBREAK,
       importDOM: {
         br: (node: Node) => {
           if (isOnlyChildInBlockNode(node) || isLastChildInBlockNode(node)) {
@@ -64,10 +67,12 @@ function $convertLineBreakElement(node: Node): DOMConversionOutput {
   return {node: $createLineBreakNode()};
 }
 
+/** Creates a LineBreakNode representing a soft line break (Shift+Enter). */
 export function $createLineBreakNode(): LineBreakNode {
   return $applyNodeReplacement(new LineBreakNode());
 }
 
+/** Returns true if the given node is a LineBreakNode. */
 export function $isLineBreakNode(
   node: LexicalNode | null | undefined,
 ): node is LineBreakNode {

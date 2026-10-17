@@ -58,16 +58,12 @@ export type SerializedHorizontalRuleNode = SerializedLexicalNode;
  * `editor.dispatchCommand(INSERT_HORIZONTAL_RULE_COMMAND)`.
  */
 export const INSERT_HORIZONTAL_RULE_COMMAND: LexicalCommand<void> =
-  /* @__PURE__ */ createCommand('INSERT_HORIZONTAL_RULE_COMMAND');
+  createCommand('INSERT_HORIZONTAL_RULE_COMMAND');
 
 export class HorizontalRuleNode extends DecoratorNode<unknown> {
   $config() {
-    // `extends` is intentionally left to the runtime default (the prototype
-    // parent) rather than declared explicitly: the deprecated
-    // `@lexical/react` HorizontalRuleNode subclasses this one and reuses the
-    // same 'horizontalrule' type, so both `$config()` overrides must infer a
-    // matching shape.
     return this.config('horizontalrule', {
+      extends: DecoratorNode,
       importDOM: {
         hr: () => ({
           conversion: $convertHorizontalRuleElement,
@@ -142,7 +138,7 @@ function $toggleNodeSelection(
  * An extension for HorizontalRuleNode that provides an implementation that
  * works without any React dependency.
  */
-export const HorizontalRuleExtension = /* @__PURE__ */ defineExtension({
+export const HorizontalRuleExtension = defineExtension({
   dependencies: [EditorStateExtension, NodeSelectionExtension],
   name: '@lexical/extension/HorizontalRule',
   nodes: () => [HorizontalRuleNode],

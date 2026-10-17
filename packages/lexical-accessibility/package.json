@@ -13,7 +13,7 @@
     "voiceover"
   ],
   "license": "MIT",
-  "version": "0.38.2",
+  "version": "0.52.0",
   "main": "./dist/LexicalAccessibility.js",
   "types": "./dist/typescript-too-old.d.ts",
   "dependencies": {
@@ -31,26 +31,16 @@
     "url": "git+https://github.com/facebook/lexical.git",
     "directory": "packages/lexical-accessibility"
   },
-  "module": "./dist/LexicalAccessibility.mjs",
+  "module": "./dist/LexicalAccessibility.js",
   "sideEffects": false,
   "exports": {
     ".": {
       "source": "./src/index.ts",
-      "import": {
-        "types@<5.2": "./dist/typescript-too-old.d.ts",
-        "types": "./dist/index.d.ts",
-        "development": "./dist/LexicalAccessibility.dev.mjs",
-        "production": "./dist/LexicalAccessibility.prod.mjs",
-        "node": "./dist/LexicalAccessibility.node.mjs",
-        "default": "./dist/LexicalAccessibility.mjs"
-      },
-      "require": {
-        "types@<5.2": "./dist/typescript-too-old.d.ts",
-        "types": "./dist/index.d.ts",
-        "development": "./dist/LexicalAccessibility.dev.js",
-        "production": "./dist/LexicalAccessibility.prod.js",
-        "default": "./dist/LexicalAccessibility.js"
-      }
+      "types@<5.2": "./dist/typescript-too-old.d.ts",
+      "types": "./dist/index.d.ts",
+      "development": "./dist/LexicalAccessibility.dev.js",
+      "production": "./dist/LexicalAccessibility.prod.js",
+      "default": "./dist/LexicalAccessibility.js"
     }
   },
   "files": [
@@ -82,5 +72,6 @@
     "typescript": {
       "optional": true
     }
-  }
+  },
+  "type": "module"
 }

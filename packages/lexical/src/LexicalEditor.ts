@@ -7,12 +7,16 @@
  */
 
 import type {DOMSlot, ElementDOMSlot} from './LexicalDOMSlot';
+import type {KeyDownShortcut} from './LexicalEvents';
+import type {CompiledKeyboardShortcuts} from './LexicalKeyboardShortcuts';
 import type {ElementNode} from './nodes/LexicalElementNode';
 
+import devInvariant from '@lexical/internal/devInvariant';
 import invariant from '@lexical/internal/invariant';
 import {LEXICAL_VERSION} from '@lexical/internal/version';
 
 import {
+  $createParagraphNode,
   $getRoot,
   $getSelection,
   $isElementNode,
@@ -25,8 +29,10 @@ import {FULL_RECONCILE, NO_DIRTY_NODES} from './LexicalConstants';
 import {DequeSet} from './LexicalDequeSet';
 import {
   cloneEditorState,
+  type CompactSerializedEditorState,
   createEmptyEditorState,
   type EditorState,
+  type ParsableSerializedEditorState,
   type SerializedEditorState,
 } from './LexicalEditorState';
 import {
@@ -46,6 +52,7 @@ import {
   type NodeKey,
 } from './LexicalNode';
 import {createSharedNodeState, type SharedNodeState} from './LexicalNodeState';
+import {$isCompactExport} from './LexicalSerializedExport';
 import {
   $commitPendingUpdates,
   $fullReconcile,
@@ -274,8 +281,24 @@ export interface InputState {
   postDeleteSelectionToRestore: RangeSelection | null;
 
   isSelectionChangeFromDOMUpdate: boolean;
+  /**
+   * The DOM boundary points the reconciler applied when it set
+   * isSelectionChangeFromDOMUpdate, so the selectionchange handler can tell
+   * "the event for our own update" apart from a user selection that arrives
+   * while the flag is stale. WebKit fires no selectionchange at all when the
+   * applied selection matches what the DOM already had, so the flag alone can
+   * outlive its event and swallow the next real one.
+   */
+  selectionChangeFromDOMUpdatePoints: null | {
+    anchorNode: Node;
+    anchorOffset: number;
+    focusNode: Node;
+    focusOffset: number;
+  };
   isSelectionChangeFromMouseDown: boolean;
   isInsertLineBreak: boolean;
+  /** Explicit Shift state, excluding iOS automatic capitalization. */
+  isShiftKeyDown: boolean;
 
   isInsertTextAfterHandledSelectionCommand: boolean;
   handledSelectionCommandTimeoutId: ReturnType<typeof setTimeout> | null;
@@ -299,10 +322,12 @@ export function createInputState(): InputState {
     isInsertTextAfterHandledSelectionCommand: false,
     isSelectionChangeFromDOMUpdate: false,
     isSelectionChangeFromMouseDown: false,
+    isShiftKeyDown: false,
     lastBeforeInputInsertTextTimeStamp: 0,
     lastKeyCode: null,
     lastKeyDownTimeStamp: 0,
     postDeleteSelectionToRestore: null,
+    selectionChangeFromDOMUpdatePoints: null,
     unprocessedBeforeInputData: null,
   };
 }
@@ -746,7 +771,13 @@ type IntentionallyMarkedAsDirtyElement = boolean;
 type DOMConversionCache = Map<string, ((node: Node) => DOMConversion | null)[]>;
 
 export type SerializedEditor = {
-  editorState: SerializedEditorState;
+  /**
+   * Typed as the compact shape because {@link LexicalEditor.toJSON} writes
+   * whichever form encloses it: a nested editor serialized inside a compact
+   * document is compact too, so promising the full shape here would promise
+   * properties that are not there. Both forms satisfy this, and both parse.
+   */
+  editorState: CompactSerializedEditorState;
 };
 
 /** @internal */
@@ -1103,7 +1134,7 @@ export class LexicalEditor {
   declare ['constructor']: KlassConstructor<typeof LexicalEditor>;
 
   /** The version with build identifiers for this editor (since 0.17.1) */
-  static version: string | undefined;
+  static version: string | undefined = LEXICAL_VERSION;
 
   /** @internal */
   _headless: boolean;
@@ -1142,7 +1173,7 @@ export class LexicalEditor {
   /** @internal */
   _dirtyType: 0 | 1 | 2;
   /** @internal */
-  _cloneNotNeeded: Set<NodeKey>;
+  _cloneNotNeeded: Map<NodeKey, LexicalNode>;
   /** @internal */
   _dirtyLeaves: Set<NodeKey>;
   /** @internal */
@@ -1179,7 +1210,11 @@ export class LexicalEditor {
    */
   _slotsUsed: boolean;
   /** @internal */
+  _keyDownShortcuts: null | CompiledKeyboardShortcuts<KeyDownShortcut>;
+  /** @internal */
   _inputState: InputState;
+  /** @internal */
+  _lastNotifiedSelection: null | BaseSelection;
   /** @internal */
   _createEditorArgs?: undefined | CreateEditorArgs;
 
@@ -1231,7 +1266,7 @@ export class LexicalEditor {
     this._pendingDecorators = null;
     // Used to optimize reconciliation
     this._dirtyType = NO_DIRTY_NODES;
-    this._cloneNotNeeded = new Set();
+    this._cloneNotNeeded = new Map();
     this._dirtyLeaves = new Set();
     this._dirtyElements = new Map();
     this._normalizedNodes = new Set();
@@ -1249,7 +1284,9 @@ export class LexicalEditor {
     this._window = null;
     this._blockCursorElement = null;
     this._slotsUsed = false;
+    this._keyDownShortcuts = null;
     this._inputState = createInputState();
+    this._lastNotifiedSelection = null;
   }
 
   /**
@@ -1578,6 +1615,12 @@ export class LexicalEditor {
    * will be triggered in an implicit {@link LexicalEditor.update}, unless
    * this was invoked from inside an update in which case that update context
    * will be re-used (as if this was a dollar function itself).
+   *
+   * Do not call this from inside a read-only context such as
+   * {@link LexicalEditor.read} or {@link EditorState.read}. Command listeners
+   * usually change the editor, so Lexical runs them in a separate writable
+   * update and development builds log a warning when they detect this.
+   * Dispatch after the read returns instead.
    * @param type - the type of command listeners to trigger.
    * @param payload - the data to pass as an argument to the command listeners.
    */
@@ -1713,12 +1756,7 @@ export class LexicalEditor {
    * @param options - options for the update.
    */
   setEditorState(editorState: EditorState, options?: EditorSetOptions): void {
-    if (editorState.isEmpty()) {
-      invariant(
-        false,
-        "setEditorState: the editor state is empty. Ensure the editor state's root node never becomes empty.",
-      );
-    }
+    const isEmptyEditorState = editorState.isEmpty();
 
     // Ensure that we have a writable EditorState so that transforms can run
     // during a historic operation
@@ -1761,6 +1799,20 @@ export class LexicalEditor {
         if (tag) {
           this._updateTags.add(tag);
         }
+        if (isEmptyEditorState) {
+          // A root with no children is not the canonical empty document: it
+          // reconciles to a contenteditable with no block element to place a
+          // caret in. It still arrives from outside the editor, because
+          // content persisted while the editor was empty round-trips to
+          // `{"root":{"children":[]}}`, so recover rather than leave the
+          // editor unusable. Reusing the wording of the invariant this
+          // replaces keeps the existing error code.
+          devInvariant(
+            false,
+            "setEditorState: the editor state is empty. Ensure the editor state's root node never becomes empty.",
+          );
+          $getRoot().append($createParagraphNode());
+        }
         if (editorState._parsed) {
           for (const [key, node] of writableEditorState._nodeMap.entries()) {
             // Mark all nodes as dirty with a freshly parsed EditorState
@@ -1790,12 +1842,22 @@ export class LexicalEditor {
    * Parses a SerializedEditorState (usually produced by {@link EditorState.toJSON}) and returns
    * and EditorState object that can be, for example, passed to {@link LexicalEditor.setEditorState}. Typically,
    * deserialization from JSON stored in a database uses this method.
+   *
+   * Either form is accepted: parsing restores what a compact document omitted,
+   * which is the whole reason it may omit it, so
+   * {@link CompactSerializedEditorState} — what `toJSON(true)` returns — goes
+   * back in without a cast. So does a document assembled from serialized nodes
+   * ({@link ParsableSerializedEditorState}), such as `@lexical/clipboard`'s.
    * @param maybeStringifiedEditorState
    * @param updateFn
    * @returns
    */
   parseEditorState(
-    maybeStringifiedEditorState: string | SerializedEditorState,
+    maybeStringifiedEditorState:
+      | string
+      | SerializedEditorState
+      | CompactSerializedEditorState
+      | ParsableSerializedEditorState,
     updateFn?: () => void,
   ): EditorState {
     const serializedEditorState =
@@ -1950,13 +2012,19 @@ export class LexicalEditor {
    *
    * See {@link LexicalNode.exportJSON}
    *
+   * This editor's serialized state, in whichever form the export around it is
+   * writing — which is how a nested editor (an image caption) stays in the
+   * same form as the document containing it.
+   *
+   * The form is passed on explicitly rather than picked up by the call below:
+   * `EditorState.toJSON()` with no argument always writes the legacy form, so
+   * that its return type is true of what it returns.
+   *
    * @returns A JSON-serializable javascript object
    */
   toJSON(): SerializedEditor {
     return {
-      editorState: this._editorState.toJSON(),
+      editorState: this._editorState.toJSON($isCompactExport()),
     };
   }
 }
-
-LexicalEditor.version = LEXICAL_VERSION;

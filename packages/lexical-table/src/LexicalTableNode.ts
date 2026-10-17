@@ -17,8 +17,11 @@ import {
   $getDocument,
   $getEditor,
   $getNearestNodeFromDOMNode,
+  $setDirectionFromDOM,
   addClassNamesToElement,
+  arrayValue,
   type BaseSelection,
+  booleanValue,
   type DOMConversionOutput,
   type DOMExportOutput,
   type EditorConfig,
@@ -28,17 +31,23 @@ import {
   isHTMLElement,
   type LexicalEditor,
   type LexicalNode,
-  type LexicalUpdateJSON,
+  type LexicalParseJSON,
   type NodeKey,
+  nodeSchema,
+  numberValue,
+  optional,
   removeClassNamesFromElement,
   type SerializedElementNode,
+  type SerializedPartial,
   setDOMStyleFromCSS,
   setDOMUnmanaged,
   type Spread,
+  withAccessors,
 } from 'lexical';
 
 import {PIXEL_VALUE_REG_EXP} from './constants';
 import {$isTableCellNode, type TableCellNode} from './LexicalTableCellNode';
+import {GENERATED_TABLE} from './LexicalTableGeneratedJSON';
 import {$isTableRowNode} from './LexicalTableRowNode';
 import {
   $getNearestTableCellInTableFromDOMNode,
@@ -63,6 +72,32 @@ export type SerializedTableNode = Spread<
   },
   SerializedElementNode
 >;
+
+const tableNodeSchema = nodeSchema<TableNode>()({
+  // Read straight off the field; applied through setColWidths, which freezes
+  // the stored array in DEV.
+  colWidths: withAccessors(optional(arrayValue(numberValue())), {
+    getter: {field: '__colWidths'},
+  }),
+  // The getters stay methods: each normalizes a falsy value to `undefined`, so
+  // a table with no striping and no frozen rows or columns writes none of
+  // them. The setters are the fields they write — which is all
+  // setFrozenColumns, setFrozenRows and setRowStriping do — and naming them is
+  // also what tells the clone where these live, so the class needs no
+  // `afterCloneFrom` of its own.
+  frozenColumnCount: withAccessors(numberValue(), {
+    getter: 'getSerializedFrozenColumnCount',
+    setter: {field: '__frozenColumnCount', method: 'setFrozenColumns'},
+  }),
+  frozenRowCount: withAccessors(numberValue(), {
+    getter: 'getSerializedFrozenRowCount',
+    setter: {field: '__frozenRowCount', method: 'setFrozenRows'},
+  }),
+  rowStriping: withAccessors(booleanValue(), {
+    getter: 'getSerializedRowStriping',
+    setter: {field: '__rowStriping'},
+  }),
+});
 
 function $updateColgroup(
   dom: HTMLTableElement,
@@ -356,7 +391,7 @@ export function setScrollableTablesActive(
   active: boolean,
 ): void {
   if (active) {
-    if (__DEV__ && !editor._config.theme.tableScrollableWrapper) {
+    if (__DEV__ && editor._config.theme.tableScrollableWrapper === undefined) {
       console.warn(
         'TableNode: hasHorizontalScroll is active but theme.tableScrollableWrapper is not defined.',
       );
@@ -367,7 +402,15 @@ export function setScrollableTablesActive(
   }
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging
+export interface TableNode {
+  exportJSON(compact?: false): SerializedTableNode;
+  exportJSON(compact: boolean): SerializedPartial<SerializedTableNode>;
+  updateFromJSON(serializedNode: LexicalParseJSON<SerializedTableNode>): this;
+}
+
 /** @noInheritDoc */
+// eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging
 export class TableNode extends ElementNode {
   /** @internal */
   __rowStriping: boolean = false;
@@ -382,13 +425,30 @@ export class TableNode extends ElementNode {
   $config() {
     return this.config('table', {
       extends: ElementNode,
+      generated: GENERATED_TABLE,
       importDOM: {
         table: () => ({
           conversion: $convertTableElement,
           priority: 1,
         }),
       },
+      json: tableNodeSchema,
     });
+  }
+
+  /** @internal These three are omitted from the JSON when falsy. */
+  getSerializedFrozenColumnCount(): number | undefined {
+    return this.getLatest().__frozenColumnCount || undefined;
+  }
+
+  /** @internal */
+  getSerializedFrozenRowCount(): number | undefined {
+    return this.getLatest().__frozenRowCount || undefined;
+  }
+
+  /** @internal */
+  getSerializedRowStriping(): boolean | undefined {
+    return this.getLatest().__rowStriping || undefined;
   }
 
   getColWidths(): readonly number[] | undefined {
@@ -402,35 +462,6 @@ export class TableNode extends ElementNode {
     self.__colWidths =
       colWidths !== undefined && __DEV__ ? Object.freeze(colWidths) : colWidths;
     return self;
-  }
-
-  afterCloneFrom(prevNode: this) {
-    super.afterCloneFrom(prevNode);
-    this.__colWidths = prevNode.__colWidths;
-    this.__rowStriping = prevNode.__rowStriping;
-    this.__frozenColumnCount = prevNode.__frozenColumnCount;
-    this.__frozenRowCount = prevNode.__frozenRowCount;
-  }
-
-  updateFromJSON(serializedNode: LexicalUpdateJSON<SerializedTableNode>): this {
-    return super
-      .updateFromJSON(serializedNode)
-      .setRowStriping(serializedNode.rowStriping || false)
-      .setFrozenColumns(serializedNode.frozenColumnCount || 0)
-      .setFrozenRows(serializedNode.frozenRowCount || 0)
-      .setColWidths(serializedNode.colWidths);
-  }
-
-  exportJSON(): SerializedTableNode {
-    return {
-      ...super.exportJSON(),
-      colWidths: this.getColWidths(),
-      frozenColumnCount: this.__frozenColumnCount
-        ? this.__frozenColumnCount
-        : undefined,
-      frozenRowCount: this.__frozenRowCount ? this.__frozenRowCount : undefined,
-      rowStriping: this.__rowStriping ? this.__rowStriping : undefined,
-    };
   }
 
   extractWithChild(
@@ -574,6 +605,40 @@ export class TableNode extends ElementNode {
   exportDOM(editor: LexicalEditor): DOMExportOutput {
     const superExport = super.exportDOM(editor);
     const {element} = superExport;
+    const exportedElement =
+      !isHTMLTableElement(element) && isHTMLElement(element)
+        ? element.querySelector('table')
+        : element;
+    // ElementNode.exportDOM writes the direction and the indent onto whatever
+    // createDOM returned, which is the scroll wrapper (or the sticky scrollbar
+    // wrapper around it) when scrollable tables are active. Those wrappers are
+    // not part of the export, so move what they were given onto the <table>
+    // itself. createDOM puts nothing of its own on a wrapper, so anything found
+    // here came from the super call, and moving rather than re-deriving keeps
+    // this in step with whatever ElementNode.exportDOM writes next.
+    //
+    // Of the two, only the direction makes the round trip back in —
+    // $convertTableElement reads it with $setDirectionFromDOM, and nothing
+    // restores an indent for a table. The indent still belongs in the export:
+    // it is what ElementNode.exportDOM emits for every other element, and it is
+    // what renders the indent outside of Lexical.
+    if (
+      isHTMLElement(element) &&
+      isHTMLTableElement(exportedElement) &&
+      exportedElement !== element
+    ) {
+      if (element.dir) {
+        exportedElement.dir = element.dir;
+      }
+      const {paddingInlineStart} = element.style;
+      if (paddingInlineStart) {
+        exportedElement.style.paddingInlineStart = paddingInlineStart;
+      }
+      const indent = element.getAttribute('data-lexical-indent');
+      if (indent !== null) {
+        exportedElement.setAttribute('data-lexical-indent', indent);
+      }
+    }
     return {
       after: tableElement => {
         if (superExport.after) {
@@ -646,10 +711,7 @@ export class TableNode extends ElementNode {
         }
         return tableElement;
       },
-      element:
-        !isHTMLTableElement(element) && isHTMLElement(element)
-          ? element.querySelector('table')
-          : element,
+      element: exportedElement,
     };
   }
 
@@ -861,6 +923,7 @@ export function $convertTableElement(
       tableNode.setColWidths(columns);
     }
   }
+  $setDirectionFromDOM(tableNode, domNode);
   return {
     after: children => $descendantsMatching(children, $isTableRowNode),
     node: tableNode,
