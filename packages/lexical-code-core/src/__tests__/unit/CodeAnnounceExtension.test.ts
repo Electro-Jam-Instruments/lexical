@@ -7,7 +7,11 @@
  */
 
 import {CodeAnnounceExtension, CodeExtension} from '@lexical/code';
-import {$createCodeHighlightNode, $createCodeNode} from '@lexical/code-core';
+import {
+  $createCodeHighlightNode,
+  $createCodeNode,
+  $isCodeNode,
+} from '@lexical/code-core';
 import {
   buildEditorFromExtensions,
   defineExtension,
@@ -151,7 +155,7 @@ describe('CodeAnnounceExtension', () => {
     editor.update(
       () => {
         const code = $getRoot().getLastChild();
-        if (code !== null && 'append' in code) {
+        if ($isCodeNode(code)) {
           code.append($createCodeHighlightNode(' more'));
         }
       },

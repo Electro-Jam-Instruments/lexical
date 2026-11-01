@@ -52,6 +52,7 @@ import {
   TRANSFORMERS,
   UNORDERED_LIST,
 } from './MarkdownTransformers';
+import {TABLE} from './TableTransformer';
 
 /**
  * Renders markdown from a string. The selection is moved to the start after the operation.
@@ -168,6 +169,7 @@ export {
   QUOTE,
   registerMarkdownShortcuts,
   STRIKETHROUGH,
+  TABLE,
   TEXT_FORMAT_TRANSFORMERS,
   TEXT_MATCH_TRANSFORMERS,
   type TextFormatTransformer,

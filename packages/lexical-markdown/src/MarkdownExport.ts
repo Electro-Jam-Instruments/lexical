@@ -7,6 +7,7 @@
  */
 
 import {$isAutoLinkNode, $isLinkNode} from '@lexical/link';
+import {$isListItemNode, $isListNode} from '@lexical/list';
 import {$sliceSelectedTextNodeContent} from '@lexical/selection';
 import {
   $getRoot,
@@ -475,6 +476,10 @@ function $exportChildren(
           null,
         ),
       );
+    } else if ($isListNode(child) && $isListItemNode(node)) {
+      // A nested list lives inside the item above it. The list transformer
+      // exports it as indented lines after this item.
+      continue;
     } else if ($isElementNode(child)) {
       // empty paragraph returns ""
       output.push(

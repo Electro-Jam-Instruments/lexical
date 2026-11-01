@@ -22,6 +22,7 @@ import {
   type LexicalNode,
   mergeRegister,
   type NodeKey,
+  OUTDENT_CONTENT_COMMAND,
   TextNode,
 } from 'lexical';
 
@@ -100,6 +101,20 @@ export function registerList(
     editor.registerCommand(
       INSERT_PARAGRAPH_COMMAND,
       () => {
+        // ACCESSIBILITY: when pressing Enter on an empty nested list item, use
+        // OUTDENT_CONTENT_COMMAND instead of manually restructuring nodes. This
+        // matches Backspace behavior and prevents NVDA announcing "out of list".
+        const selection = $getSelection();
+        if ($isRangeSelection(selection) && selection.isCollapsed()) {
+          const anchor = selection.anchor.getNode();
+          if (
+            $isListItemNode(anchor) &&
+            anchor.getChildrenSize() === 0 &&
+            anchor.getIndent() > 0
+          ) {
+            return editor.dispatchCommand(OUTDENT_CONTENT_COMMAND, undefined);
+          }
+        }
         const shouldRestore = options && options.restoreNumbering;
         return $handleListInsertParagraph(!!shouldRestore);
       },

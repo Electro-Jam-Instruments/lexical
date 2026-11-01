@@ -1,0 +1,268 @@
+/**
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ *
+ */
+
+import type {
+  AnnouncementContext,
+  NodeAnnouncementConfig,
+  NodeMetadata,
+  Verbosity,
+} from './nodeConfigTypes';
+import type {LexicalEditor, LexicalNode} from 'lexical';
+import type {MutableRefObject} from 'react';
+
+import {$getNodeByKey} from 'lexical';
+import {useEffect, useRef} from 'react';
+
+import {generateIndentAnnouncement} from './announcementGenerator';
+import {codeBlockConfig} from './codeBlockConfig';
+import {headingConfig} from './headingConfig';
+import {horizontalRuleConfig} from './horizontalRuleConfig';
+import {listItemConfig} from './listItemConfig';
+import {quoteConfig} from './quoteConfig';
+import {getSuppressingAnnouncements} from './suppressionState';
+
+/**
+ * All registered node announcement configurations.
+ * Add new configs here to enable announcements for additional node types.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export const nodeConfigs: NodeAnnouncementConfig<any>[] = [
+  listItemConfig,
+  headingConfig,
+  codeBlockConfig,
+  quoteConfig,
+  horizontalRuleConfig,
+];
+
+interface UseNodeRegistryOptions {
+  editor: LexicalEditor;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  configs: NodeAnnouncementConfig<any>[];
+  verbosity: Verbosity;
+  enabled: boolean;
+  announce: (message: string) => void;
+  isIndentOperationRef: MutableRefObject<boolean>;
+  isEnterOnEmptyRef: MutableRefObject<boolean>;
+}
+
+/**
+ * Hook that registers all node announcement listeners based on configs.
+ *
+ * This centralizes the registration logic so the main plugin doesn't need
+ * to know about individual node types. Adding a new node type is as simple
+ * as creating a config and adding it to the configs array.
+ */
+export function useNodeRegistry({
+  editor,
+  configs,
+  verbosity,
+  enabled,
+  announce,
+  isIndentOperationRef,
+  isEnterOnEmptyRef,
+}: UseNodeRegistryOptions): void {
+  const nodeMetadataRef = useRef(new Map<string, NodeMetadata>());
+  const knownContainersRef = useRef(new Set<string>());
+  const announcedCreationsRef = useRef(new Set<string>());
+
+  useEffect(() => {
+    if (!enabled) {
+      return;
+    }
+
+    const nodeMetadata = nodeMetadataRef.current;
+    const knownContainers = knownContainersRef.current;
+    const announcedCreations = announcedCreationsRef.current;
+    const unregisterFns: Array<() => void> = [];
+
+    configs.forEach((config) => {
+      // A config describes a node type the host editor may or may not have.
+      // registerNodeTransform/registerMutationListener throw a hard invariant
+      // for an unregistered node, so an editor without (say) headings would
+      // crash on mount rather than simply not announcing them.
+      //
+      // Skip instead. Each config carries its own nodeClass, so this needs no
+      // mapping table - it just asks the config whether its node is present.
+      //
+      // Silent by design: an editor without headings is a valid configuration,
+      // not a mistake, and the default config set includes every node type. A
+      // warning here would fire on every mount of a plain-text editor.
+      if (!editor.hasNode(config.nodeClass)) {
+        return;
+      }
+
+      const getContext = (): AnnouncementContext => ({
+        isEnterOnEmpty: isEnterOnEmptyRef.current,
+        isIndentOperation: isIndentOperationRef.current,
+        knownContainers,
+      });
+
+      const unregisterTransform = editor.registerNodeTransform(
+        config.nodeClass,
+        (node) => {
+          const key = node.getKey();
+          const metadata = config.extractMetadata(node);
+
+          if (!metadata) {
+            return;
+          }
+
+          nodeMetadata.set(key, metadata);
+
+          // Skip creation announcements if suppression is active (e.g., during paste)
+          // Use module-level getter because React refs don't work with Lexical's synchronous transforms
+          if (getSuppressingAnnouncements()) {
+            announcedCreations.add(key); // Mark as announced to prevent future announcement
+            // Also run shouldAnnounceCreation to update knownContainers (for list tracking)
+            // but don't actually announce anything
+            if (config.shouldAnnounceCreation) {
+              config.shouldAnnounceCreation(node, getContext());
+            }
+            return;
+          }
+
+          if (config.onCreated) {
+            const shouldAnnounce = config.shouldAnnounceCreation
+              ? config.shouldAnnounceCreation(node, getContext())
+              : !announcedCreations.has(key);
+
+            if (shouldAnnounce && !announcedCreations.has(key)) {
+              const message = config.onCreated(metadata, verbosity);
+              if (message) {
+                announce(message);
+              }
+              announcedCreations.add(key);
+            }
+          }
+        },
+      );
+      unregisterFns.push(unregisterTransform);
+
+      if (config.onDestroyed) {
+        const unregisterMutation = editor.registerMutationListener(
+          config.nodeClass,
+          (mutations, {prevEditorState}) => {
+            // Skip announcements if suppression is active (e.g., during paste)
+            if (getSuppressingAnnouncements()) {
+              // Still clean up metadata for destroyed nodes
+              mutations.forEach((mutation, key) => {
+                if (mutation === 'destroyed') {
+                  nodeMetadata.delete(key);
+                  announcedCreations.delete(key);
+                }
+              });
+              return;
+            }
+
+            const destroyedEntries: Array<{
+              key: string;
+              metadata: NodeMetadata;
+            }> = [];
+
+            mutations.forEach((mutation, key) => {
+              if (mutation === 'destroyed') {
+                let metadata: NodeMetadata | null = null;
+
+                prevEditorState.read(() => {
+                  const node = $getNodeByKey(key);
+                  if (node && node instanceof config.nodeClass) {
+                    metadata = config.extractMetadata(
+                      node as LexicalNode &
+                        InstanceType<typeof config.nodeClass>,
+                    );
+                  }
+                });
+
+                if (!metadata) {
+                  metadata = nodeMetadata.get(key) ?? null;
+                }
+
+                if (metadata) {
+                  destroyedEntries.push({key, metadata});
+                }
+              }
+            });
+
+            let entryToAnnounce: {key: string; metadata: NodeMetadata} | null =
+              null;
+
+            if (destroyedEntries.length === 1) {
+              entryToAnnounce = destroyedEntries[0];
+            } else if (destroyedEntries.length === 2) {
+              const listMetas = destroyedEntries.map(
+                (e) =>
+                  e.metadata as {
+                    isEmpty?: boolean;
+                    hasNestedList?: boolean;
+                    itemValue?: number;
+                    nestingDepth?: number;
+                  },
+              );
+
+              const emptyNonWrapper = destroyedEntries.find(
+                (e, i) => listMetas[i].isEmpty && !listMetas[i].hasNestedList,
+              );
+
+              if (emptyNonWrapper) {
+                entryToAnnounce = emptyNonWrapper;
+                const meta = emptyNonWrapper.metadata as {
+                  nestingDepth?: number;
+                };
+                if (meta.nestingDepth && meta.nestingDepth > 1) {
+                  const newIndentLevel = meta.nestingDepth - 2;
+                  const message = generateIndentAnnouncement(
+                    'outdent',
+                    verbosity,
+                    newIndentLevel,
+                  );
+                  announce(message);
+                }
+              }
+            }
+
+            if (entryToAnnounce) {
+              const {metadata} = entryToAnnounce;
+              const shouldAnnounce = config.shouldAnnounceDestruction
+                ? config.shouldAnnounceDestruction(metadata, getContext())
+                : true;
+
+              if (shouldAnnounce && config.onDestroyed) {
+                const message = config.onDestroyed(
+                  metadata,
+                  verbosity,
+                  getContext(),
+                );
+                if (message) {
+                  announce(message);
+                }
+              }
+            }
+
+            destroyedEntries.forEach(({key}) => {
+              nodeMetadata.delete(key);
+              announcedCreations.delete(key);
+            });
+          },
+        );
+        unregisterFns.push(unregisterMutation);
+      }
+    });
+
+    return () => {
+      unregisterFns.forEach((fn) => fn());
+    };
+  }, [
+    editor,
+    configs,
+    verbosity,
+    enabled,
+    announce,
+    isIndentOperationRef,
+    isEnterOnEmptyRef,
+  ]);
+}

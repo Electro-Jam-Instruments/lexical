@@ -1,0 +1,860 @@
+/**
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ *
+ */
+
+import {$isCodeNode} from '@lexical/code';
+import {$isListItemNode} from '@lexical/list';
+import {useLexicalComposerContext} from '@lexical/react/LexicalComposerContext';
+import {$isHorizontalRuleNode} from '@lexical/react/LexicalHorizontalRuleNode';
+import {useLexicalAriaLiveRegion} from '@lexical/react/useLexicalAriaLiveRegion';
+import {
+  $getNodeByKey,
+  $getRoot,
+  $getSelection,
+  $isNodeSelection,
+  $isRangeSelection,
+  $isTextNode,
+  COMMAND_PRIORITY_CRITICAL,
+  COMMAND_PRIORITY_HIGH,
+  COMMAND_PRIORITY_LOW,
+  INDENT_CONTENT_COMMAND,
+  INSERT_PARAGRAPH_COMMAND,
+  KEY_BACKSPACE_COMMAND,
+  KEY_DELETE_COMMAND,
+  KEY_ENTER_COMMAND,
+  KEY_TAB_COMMAND,
+  type LexicalNode,
+  OUTDENT_CONTENT_COMMAND,
+  PASTE_COMMAND,
+  type PasteCommandType,
+  TextNode,
+} from 'lexical';
+import {useEffect, useMemo, useRef} from 'react';
+
+import {
+  $createAccessibleTextNode,
+  AccessibleTextNode,
+} from './AccessibleTextNode';
+import {
+  generateFormatAnnouncement,
+  generateIndentAnnouncement,
+} from './announcementGenerator';
+import {$insertMarkdownAtSelection} from './markdownUtils';
+import {
+  clearPendingOperation,
+  getPendingOperation,
+  setPendingOperation,
+} from './pendingOperationState';
+import {setSuppressingAnnouncements} from './suppressionState';
+import {ACCESSIBILITY_TRANSFORMERS} from './transformers';
+import {
+  type AccessibilityPluginProps,
+  DEFAULT_CONFIG,
+  SUPPRESS_A11Y_ANNOUNCEMENTS_TAG,
+} from './types';
+import {nodeConfigs, useNodeRegistry} from './useNodeRegistry';
+
+// Upstream removed the ambient __DEV__ global in v0.49.0; packages now derive
+// it locally (see packages/lexical/src/LexicalEditor.ts).
+const __DEV__ = process.env.NODE_ENV !== 'production';
+
+// Text format flags from Lexical
+const IS_BOLD = 1;
+const IS_ITALIC = 1 << 1; // 2
+const IS_STRIKETHROUGH = 1 << 2; // 4
+const IS_UNDERLINE = 1 << 3; // 8
+const IS_CODE = 1 << 4; // 16
+
+/**
+ * AccessibilityPlugin provides screen reader announcements for markdown
+ * transformations and editor operations in Lexical.
+ *
+ * Architecture:
+ * - Node creation/deletion announcements are handled by the Node Registry pattern
+ * - Each node type has a config in nodeConfigs/ that defines its announcements
+ * - Format changes (bold, italic, etc.) are handled separately via update listener
+ * - Indent/outdent operations are handled via command listeners
+ *
+ * @example
+ * ```tsx
+ * <LexicalComposer initialConfig={config}>
+ *   <RichTextPlugin />
+ *   <AccessibilityPlugin config={{ verbosity: 'standard' }} />
+ * </LexicalComposer>
+ * ```
+ */
+export function AccessibilityPlugin({
+  config = {},
+  transformers = ACCESSIBILITY_TRANSFORMERS,
+  nodeConfigs: enabledNodeConfigs = nodeConfigs,
+  additionalNodeConfigs = [],
+}: AccessibilityPluginProps): null {
+  const [editor] = useLexicalComposerContext();
+
+  const mergedConfig = useMemo(
+    () => ({...DEFAULT_CONFIG, ...config}),
+    [config],
+  );
+
+  // Enabled built-in configs (all of them unless the caller narrowed the set)
+  // plus any custom configs such as EmojiNode.
+  const allNodeConfigs = useMemo(
+    () => [...enabledNodeConfigs, ...additionalNodeConfigs],
+    [enabledNodeConfigs, additionalNodeConfigs],
+  );
+
+  // Announcements go through upstream's AriaLiveRegionExtension rather than a
+  // region of our own. One region per editor, owned for the editor's lifetime,
+  // mounted in the editor's own document (iframe/shadow-DOM safe), and it
+  // survives React unmount/remount.
+  //
+  // REQUIRES `AriaLiveRegionExtension` from `@lexical/a11y` in the editor's
+  // extension tree — useLexicalAriaLiveRegion() throws without it.
+  const announce = useLexicalAriaLiveRegion();
+
+  const previousFormatsRef = useRef(new Map<string, number>());
+  const isIndentOperationRef = useRef(false);
+  const isEnterOnEmptyRef = useRef(false);
+  const wasInCodeBlockRef = useRef(false);
+  const wasInInlineCodeRef = useRef(false);
+  const wasOnHorizontalRuleRef = useRef(false);
+  const previousBlockKeyRef = useRef<string | null>(null);
+
+  useNodeRegistry({
+    announce,
+    configs: mergedConfig.announceStructural ? allNodeConfigs : [],
+    editor,
+    enabled: mergedConfig.enabled,
+    isEnterOnEmptyRef,
+    isIndentOperationRef,
+    verbosity: mergedConfig.verbosity,
+  });
+
+  // CSS-based formatting: Transform TextNodes into AccessibleTextNodes
+  // This prevents DOM node replacement for bold/italic/underline/strikethrough,
+  // eliminating "selected/unselected" announcements from screen readers
+  //
+  // NOTE: Users must add AccessibleTextNode to their editor config nodes array:
+  // nodes: [AccessibleTextNode, ...]
+  // Or use the replace pattern:
+  // nodes: [{ replace: TextNode, with: () => new AccessibleTextNode('') }, ...]
+  useEffect(() => {
+    if (!mergedConfig.enabled || !mergedConfig.useCSSFormatting) {
+      return;
+    }
+
+    // Check if AccessibleTextNode is registered
+    if (!editor.hasNode(AccessibleTextNode)) {
+      if (__DEV__) {
+        console.warn(
+          'AccessibilityPlugin: useCSSFormatting is enabled but AccessibleTextNode is not registered. ' +
+            'Add AccessibleTextNode to your editor config nodes array for CSS-based formatting to work.',
+        );
+      }
+      return;
+    }
+
+    // Transform regular TextNodes into AccessibleTextNodes
+    const unregisterTransform = editor.registerNodeTransform(TextNode, node => {
+      // Only transform base TextNode, not subclasses (including AccessibleTextNode)
+      if (node.getType() === 'text') {
+        const accessibleNode = $createAccessibleTextNode(node.getTextContent());
+        accessibleNode.setFormat(node.getFormat());
+        accessibleNode.setDetail(node.getDetail());
+        accessibleNode.setMode(node.getMode());
+        accessibleNode.setStyle(node.getStyle());
+        node.replace(accessibleNode);
+      }
+    });
+
+    return () => {
+      unregisterTransform();
+    };
+  }, [editor, mergedConfig.enabled, mergedConfig.useCSSFormatting]);
+
+  useEffect(() => {
+    if (!mergedConfig.enabled) {
+      return;
+    }
+
+    const previousFormats = previousFormatsRef.current;
+
+    // Initialize code block and inline code state on mount
+    editor.getEditorState().read(() => {
+      const selection = $getSelection();
+      if ($isRangeSelection(selection)) {
+        const anchorNode = selection.anchor.getNode();
+
+        // Check for code block
+        let node: LexicalNode | null = anchorNode;
+        while (node !== null) {
+          if ($isCodeNode(node)) {
+            wasInCodeBlockRef.current = true;
+            break;
+          }
+          node = node.getParent();
+        }
+        if (node === null) {
+          wasInCodeBlockRef.current = false;
+        }
+
+        // Check for inline code
+        if ($isTextNode(anchorNode)) {
+          wasInInlineCodeRef.current = (anchorNode.getFormat() & IS_CODE) !== 0;
+        } else {
+          wasInInlineCodeRef.current = false;
+        }
+      } else {
+        wasInCodeBlockRef.current = false;
+        wasInInlineCodeRef.current = false;
+      }
+    });
+
+    const $getSelectedListItemLevel = (): number | undefined => {
+      const selection = $getSelection();
+      if (!$isRangeSelection(selection)) {
+        return undefined;
+      }
+
+      const anchorNode = selection.anchor.getNode();
+      let node: ReturnType<typeof anchorNode.getParent> | typeof anchorNode =
+        anchorNode;
+      while (node !== null) {
+        if ($isListItemNode(node)) {
+          return node.getIndent();
+        }
+        node = node.getParent();
+      }
+      return undefined;
+    };
+
+    const $getEnclosingCodeBlockKey = (): string | null => {
+      const selection = $getSelection();
+      if (!$isRangeSelection(selection)) {
+        return null;
+      }
+
+      const anchorNode = selection.anchor.getNode();
+      let node: LexicalNode | null = anchorNode;
+      while (node !== null) {
+        if ($isCodeNode(node)) {
+          return node.getKey();
+        }
+        node = node.getParent();
+      }
+      return null;
+    };
+
+    const $isInsideCodeBlock = (): boolean =>
+      $getEnclosingCodeBlockKey() !== null;
+
+    const $isInsideInlineCode = (): boolean => {
+      const selection = $getSelection();
+      if (!$isRangeSelection(selection)) {
+        return false;
+      }
+
+      const anchorNode = selection.anchor.getNode();
+      if (!$isTextNode(anchorNode)) {
+        return false;
+      }
+
+      // Check if the text node has the code format flag
+      return (anchorNode.getFormat() & IS_CODE) !== 0;
+    };
+
+    const unregisterBackspace = editor.registerCommand(
+      KEY_BACKSPACE_COMMAND,
+      () => false,
+      COMMAND_PRIORITY_LOW,
+    );
+
+    // Track DELETE key presses so emoji deletion can differentiate
+    // DELETE key needs our announcement (screen reader says "blank")
+    // Backspace doesn't need it (screen reader announces the character)
+    // The flag is cleared in the update listener after the operation completes.
+    const unregisterDelete = editor.registerCommand(
+      KEY_DELETE_COMMAND,
+      () => {
+        setPendingOperation('delete');
+        return false;
+      },
+      COMMAND_PRIORITY_LOW,
+    );
+
+    const unregisterEnter = editor.registerCommand(
+      KEY_ENTER_COMMAND,
+      () => {
+        const selection = $getSelection();
+        if ($isRangeSelection(selection)) {
+          const anchorNode = selection.anchor.getNode();
+
+          // Check if we're inside a code block
+          if ($isInsideCodeBlock()) {
+            // Count current line number by counting line breaks before cursor
+            let codeNode: LexicalNode | null = anchorNode;
+            while (codeNode !== null && !$isCodeNode(codeNode)) {
+              codeNode = codeNode.getParent();
+            }
+
+            if (codeNode && $isCodeNode(codeNode)) {
+              const children = codeNode.getChildren();
+              let lineNumber = 1;
+
+              for (const child of children) {
+                if (child.getKey() === anchorNode.getKey()) {
+                  break;
+                }
+                // Count line breaks to determine current line
+                if (child.getType() === 'linebreak') {
+                  lineNumber++;
+                }
+              }
+
+              // After Enter, we'll be on the next line (which is blank)
+              // Store the line number - announcement happens in update listener
+              // when we can verify we're still in a code block
+              const newLineNumber = lineNumber + 1;
+              setPendingOperation('enter-code-block', {
+                codeBlockLineNumber: newLineNumber,
+              });
+            }
+            return false;
+          }
+
+          // Handle list items
+          let listItemNode:
+            | ReturnType<typeof anchorNode.getParent>
+            | typeof anchorNode = anchorNode;
+          while (listItemNode !== null && !$isListItemNode(listItemNode)) {
+            listItemNode = listItemNode.getParent();
+          }
+
+          if (listItemNode && $isListItemNode(listItemNode)) {
+            const textContent = listItemNode.getTextContent().trim();
+            const isEmpty = textContent.length === 0;
+            const indentLevel = listItemNode.getIndent();
+
+            if (isEmpty && indentLevel > 0) {
+              // Flag is cleared in update listener after the operation completes
+              isEnterOnEmptyRef.current = true;
+              setPendingOperation('enter-empty-list-item');
+            }
+          }
+        }
+
+        return false;
+      },
+      COMMAND_PRIORITY_LOW,
+    );
+
+    const unregisterTab = editor.registerCommand(
+      KEY_TAB_COMMAND,
+      () => false,
+      COMMAND_PRIORITY_LOW,
+    );
+
+    // Note: Up/Down arrow navigation to decorator nodes (like HR) is handled
+    // by the core lexical-rich-text plugin, which now creates a NodeSelection
+    // on the decorator node. This triggers the HR announcement in the update listener.
+
+    const unregisterIndent = editor.registerCommand(
+      INDENT_CONTENT_COMMAND,
+      () => {
+        isIndentOperationRef.current = true;
+        setPendingOperation('indent');
+
+        const currentLevel = $getSelectedListItemLevel();
+        const newLevel =
+          currentLevel !== undefined ? currentLevel + 1 : undefined;
+
+        if (mergedConfig.announceStructural) {
+          const message = generateIndentAnnouncement(
+            'indent',
+            mergedConfig.verbosity,
+            newLevel,
+          );
+          announce(message);
+        }
+        return false;
+      },
+      COMMAND_PRIORITY_LOW,
+    );
+
+    const unregisterOutdent = editor.registerCommand(
+      OUTDENT_CONTENT_COMMAND,
+      () => {
+        isIndentOperationRef.current = true;
+        setPendingOperation('outdent');
+
+        const currentLevel = $getSelectedListItemLevel();
+        const newLevel =
+          currentLevel !== undefined
+            ? Math.max(0, currentLevel - 1)
+            : undefined;
+
+        if (mergedConfig.announceStructural) {
+          const message = generateIndentAnnouncement(
+            'outdent',
+            mergedConfig.verbosity,
+            newLevel,
+          );
+          announce(message);
+        }
+        return false;
+      },
+      COMMAND_PRIORITY_LOW,
+    );
+
+    // ACCESSIBILITY FIX: Intercept INSERT_PARAGRAPH_COMMAND for empty nested list items
+    // and dispatch OUTDENT_CONTENT_COMMAND instead. This makes Enter behave like Backspace
+    // (updating nodes instead of creating/destroying), preventing NVDA from announcing "out of list".
+    const unregisterInsertParagraph = editor.registerCommand(
+      INSERT_PARAGRAPH_COMMAND,
+      () => {
+        const selection = $getSelection();
+        if ($isRangeSelection(selection) && selection.isCollapsed()) {
+          const anchorNode = selection.anchor.getNode();
+
+          let listItemNode:
+            | ReturnType<typeof anchorNode.getParent>
+            | typeof anchorNode = anchorNode;
+          while (listItemNode !== null && !$isListItemNode(listItemNode)) {
+            listItemNode = listItemNode.getParent();
+          }
+
+          if (listItemNode && $isListItemNode(listItemNode)) {
+            const childrenSize = listItemNode.getChildrenSize();
+            const textContent = listItemNode.getTextContent().trim();
+            const isEmpty = childrenSize === 0 || textContent.length === 0;
+            const indent = listItemNode.getIndent();
+
+            if (isEmpty && indent > 0) {
+              editor.dispatchCommand(OUTDENT_CONTENT_COMMAND, undefined);
+              return true;
+            }
+          }
+        }
+        return false;
+      },
+      COMMAND_PRIORITY_HIGH,
+    );
+
+    // Smart Paste as Markdown
+    // - Ctrl+Shift+V always parses as markdown (explicit override)
+    // - Normal Ctrl+V uses smart detection:
+    //   - If HTML has rich formatting (strong, em, h1, etc.) → use default paste
+    //   - If HTML is just structural (div, span, p) → parse as markdown
+    //   - If no HTML → parse as markdown
+    const hasRichFormatting = (html: string): boolean => {
+      // Tags that indicate actual formatting worth preserving
+      const richPatterns = [
+        /<(strong|b|em|i|u|s|strike|del|mark)\b/i, // Text formatting
+        /<(h[1-6])\b/i, // Headings
+        /<(ul|ol|li)\b/i, // Lists
+        /<(pre|code)\b/i, // Code
+        /<(blockquote)\b/i, // Quotes
+        /<a\s+href/i, // Links with href
+      ];
+      return richPatterns.some(p => p.test(html));
+    };
+
+    const unregisterPaste = editor.registerCommand(
+      PASTE_COMMAND,
+      (event: PasteCommandType) => {
+        // PASTE_COMMAND is dispatched with ClipboardEvent | InputEvent |
+        // KeyboardEvent; only the clipboard variant carries the data we need.
+        const clipboardData =
+          event instanceof ClipboardEvent ? event.clipboardData : null;
+        if (!clipboardData) {
+          return false;
+        }
+
+        // Let file pastes (images) pass through to DragDropPastePlugin
+        const hasFiles = clipboardData.types.includes('Files');
+        if (hasFiles) {
+          return false;
+        }
+
+        const plainText = clipboardData.getData('text/plain');
+        if (!plainText) {
+          return false;
+        }
+
+        const htmlText = clipboardData.getData('text/html');
+
+        // Check if the plain text actually contains markdown syntax
+        // Only intercept if there's actual markdown to parse
+        const hasMarkdownSyntax =
+          /(\*\*|__|~~|`|^#{1,6}\s|^\s*[-*+]\s|^\s*\d+\.\s|^\s*>|^\|.*\|$)/m.test(
+            plainText,
+          );
+
+        // Smart detection for Ctrl+V:
+        // If no HTML or HTML has no rich formatting, AND text has markdown → parse as markdown
+        if ((!htmlText || !hasRichFormatting(htmlText)) && hasMarkdownSyntax) {
+          event.preventDefault();
+          // Set module-level suppression flag BEFORE the update so node transforms can check it
+          setSuppressingAnnouncements(true);
+          editor.update(
+            () => {
+              $insertMarkdownAtSelection(plainText, transformers);
+            },
+            {
+              onUpdate: () => {
+                // Clear suppression flag AFTER the update completes
+                setSuppressingAnnouncements(false);
+              },
+              tag: SUPPRESS_A11Y_ANNOUNCEMENTS_TAG,
+            },
+          );
+          return true;
+        }
+
+        // No markdown syntax or HTML has rich formatting → let default handler handle it
+        return false;
+      },
+      COMMAND_PRIORITY_CRITICAL, // Higher priority than default paste handler
+    );
+
+    const unregisterUpdate = editor.registerUpdateListener(
+      ({editorState, prevEditorState, dirtyLeaves, tags}) => {
+        // Skip all announcements if suppress tag is present
+        if (tags.has(SUPPRESS_A11Y_ANNOUNCEMENTS_TAG)) {
+          clearPendingOperation();
+          return;
+        }
+
+        // Handle pending operations from command handlers.
+        // This replaces setTimeout-based flag clearing with proper event-driven sync.
+        // The update listener fires AFTER Lexical has processed the command,
+        // so we can safely read the updated state and clear operation flags.
+        const pendingOp = getPendingOperation();
+
+        editorState.read(() => {
+          // Process pending Enter in code block - announce line number
+          if (pendingOp.type === 'enter-code-block') {
+            // Only announce if we're still in a code block
+            // (Enter at end of code block exits, handled by transition detection below)
+            if ($isInsideCodeBlock() && pendingOp.codeBlockLineNumber) {
+              if (mergedConfig.verbosity === 'minimal') {
+                announce('Blank');
+              } else {
+                announce(`Blank, line ${pendingOp.codeBlockLineNumber}`);
+              }
+            }
+          }
+
+          // Process pending Enter on empty list item - clear the ref flag
+          if (pendingOp.type === 'enter-empty-list-item') {
+            isEnterOnEmptyRef.current = false;
+          }
+
+          // Process pending indent/outdent - clear the ref flag
+          if (pendingOp.type === 'indent' || pendingOp.type === 'outdent') {
+            isIndentOperationRef.current = false;
+          }
+        });
+
+        // Clear pending operation now that we've processed it
+        clearPendingOperation();
+
+        // Track code block and inline code enter/exit via update listener
+        // SELECTION_CHANGE_COMMAND doesn't fire reliably inside code blocks
+        editorState.read(() => {
+          if (mergedConfig.announceStructural) {
+            // Track code block transitions
+            const codeBlockKey = $getEnclosingCodeBlockKey();
+            const isInCodeBlock = codeBlockKey !== null;
+            const wasInCodeBlock = wasInCodeBlockRef.current;
+
+            // Writing a code block lands the caret in it, so creating one
+            // would otherwise announce twice: codeBlockConfig's "Code block
+            // started" from the mutation listener, then "Code block entered"
+            // from here. "started" is the one that describes what the user
+            // just did, so only announce entry into a pre-existing block.
+            const isNewCodeBlock =
+              codeBlockKey !== null &&
+              prevEditorState.read(() => $getNodeByKey(codeBlockKey)) === null;
+
+            // Announce code block transitions
+            if (wasInCodeBlock && !isInCodeBlock) {
+              announce('Code block exited');
+            } else if (!wasInCodeBlock && isInCodeBlock && !isNewCodeBlock) {
+              announce('Code block entered');
+            }
+
+            wasInCodeBlockRef.current = isInCodeBlock;
+
+            // Track inline code transitions (only when not in code block)
+            // Inline code detection is based on the IS_CODE format flag on TextNode
+            if (!isInCodeBlock) {
+              const isInInlineCode = $isInsideInlineCode();
+              const wasInInlineCode = wasInInlineCodeRef.current;
+
+              // Announce inline code transitions with verbosity awareness
+              if (wasInInlineCode && !isInInlineCode) {
+                // Exiting inline code
+                if (mergedConfig.verbosity === 'verbose') {
+                  announce('Exiting code');
+                } else if (mergedConfig.verbosity === 'standard') {
+                  announce('End code');
+                }
+                // minimal: no announcement
+              } else if (!wasInInlineCode && isInInlineCode) {
+                // Entering inline code
+                if (mergedConfig.verbosity === 'verbose') {
+                  announce('Entering code');
+                } else if (mergedConfig.verbosity === 'standard') {
+                  announce('Code');
+                }
+                // minimal: no announcement
+              }
+
+              wasInInlineCodeRef.current = isInInlineCode;
+            } else {
+              // Reset inline code state when inside code block
+              wasInInlineCodeRef.current = false;
+            }
+
+            // HR navigation detection - uses editorState.read() which guarantees
+            // we're reading the exact state that triggered this update
+            const selection = $getSelection();
+            let isOnHorizontalRule = false;
+            let currentBlockKey: string | null = null;
+            const root = $getRoot();
+
+            if ($isNodeSelection(selection)) {
+              const nodes = selection.getNodes();
+              if (nodes.length === 1) {
+                const node = nodes[0];
+                if ($isHorizontalRuleNode(node)) {
+                  isOnHorizontalRule = true;
+                  currentBlockKey = node.getKey();
+                }
+              }
+            } else if ($isRangeSelection(selection)) {
+              // Get the current top-level block for range selections
+              const anchorNode = selection.anchor.getNode();
+
+              let topLevelNode: LexicalNode | null = anchorNode;
+              while (topLevelNode !== null) {
+                const parent: LexicalNode | null = topLevelNode.getParent();
+                if (parent !== null && root.is(parent)) {
+                  break;
+                }
+                topLevelNode = parent;
+              }
+              if (topLevelNode !== null) {
+                currentBlockKey = topLevelNode.getKey();
+              }
+            }
+
+            const wasOnHorizontalRule = wasOnHorizontalRuleRef.current;
+            const previousBlockKey = previousBlockKeyRef.current;
+
+            // Announce when navigating TO a horizontal rule
+            if (!wasOnHorizontalRule && isOnHorizontalRule) {
+              if (mergedConfig.verbosity === 'verbose') {
+                announce('On horizontal rule separator');
+              } else if (mergedConfig.verbosity === 'standard') {
+                announce('Horizontal rule');
+              } else {
+                announce('Rule');
+              }
+            }
+
+            // Check if we jumped OVER an HR when navigating between blocks
+            if (
+              !isOnHorizontalRule &&
+              previousBlockKey !== null &&
+              currentBlockKey !== null &&
+              previousBlockKey !== currentBlockKey
+            ) {
+              // Use root children array to find HR between the two blocks
+              // This is more reliable than sibling traversal
+              const children = root.getChildren();
+              const prevIndex = children.findIndex(
+                c => c.getKey() === previousBlockKey,
+              );
+              const currIndex = children.findIndex(
+                c => c.getKey() === currentBlockKey,
+              );
+
+              if (prevIndex !== -1 && currIndex !== -1) {
+                const startIdx = Math.min(prevIndex, currIndex);
+                const endIdx = Math.max(prevIndex, currIndex);
+
+                let foundHR = false;
+                for (let i = startIdx + 1; i < endIdx; i++) {
+                  if (children[i].getType() === 'horizontalrule') {
+                    foundHR = true;
+                    break;
+                  }
+                }
+
+                if (foundHR) {
+                  if (mergedConfig.verbosity === 'verbose') {
+                    announce('Passed horizontal rule separator');
+                  } else if (mergedConfig.verbosity === 'standard') {
+                    announce('Passed horizontal rule');
+                  } else {
+                    announce('Passed rule');
+                  }
+                }
+              }
+            }
+
+            wasOnHorizontalRuleRef.current = isOnHorizontalRule;
+            previousBlockKeyRef.current = currentBlockKey;
+          }
+        });
+
+        if (!mergedConfig.announceFormats) {
+          return;
+        }
+
+        editorState.read(() => {
+          dirtyLeaves.forEach(leafKey => {
+            const node = $getNodeByKey(leafKey);
+            if (!node || !$isTextNode(node)) {
+              return;
+            }
+
+            const key = node.getKey();
+            const currentFormat = node.getFormat();
+            const previousFormat = previousFormats.get(key) || 0;
+
+            const addedFormats = currentFormat & ~previousFormat;
+            const removedFormats = previousFormat & ~currentFormat;
+
+            const textContent = node.getTextContent();
+
+            if (addedFormats & IS_BOLD) {
+              announce(
+                generateFormatAnnouncement(
+                  'bold',
+                  true,
+                  mergedConfig.verbosity,
+                  textContent,
+                ),
+              );
+            }
+            if (addedFormats & IS_ITALIC) {
+              announce(
+                generateFormatAnnouncement(
+                  'italic',
+                  true,
+                  mergedConfig.verbosity,
+                  textContent,
+                ),
+              );
+            }
+            if (addedFormats & IS_CODE) {
+              announce(
+                generateFormatAnnouncement(
+                  'code',
+                  true,
+                  mergedConfig.verbosity,
+                  textContent,
+                ),
+              );
+            }
+            if (addedFormats & IS_UNDERLINE) {
+              announce(
+                generateFormatAnnouncement(
+                  'underline',
+                  true,
+                  mergedConfig.verbosity,
+                  textContent,
+                ),
+              );
+            }
+            if (addedFormats & IS_STRIKETHROUGH) {
+              announce(
+                generateFormatAnnouncement(
+                  'strikethrough',
+                  true,
+                  mergedConfig.verbosity,
+                  textContent,
+                ),
+              );
+            }
+
+            if (removedFormats & IS_BOLD) {
+              announce(
+                generateFormatAnnouncement(
+                  'bold',
+                  false,
+                  mergedConfig.verbosity,
+                  textContent,
+                ),
+              );
+            }
+            if (removedFormats & IS_ITALIC) {
+              announce(
+                generateFormatAnnouncement(
+                  'italic',
+                  false,
+                  mergedConfig.verbosity,
+                  textContent,
+                ),
+              );
+            }
+            if (removedFormats & IS_CODE) {
+              announce(
+                generateFormatAnnouncement(
+                  'code',
+                  false,
+                  mergedConfig.verbosity,
+                  textContent,
+                ),
+              );
+            }
+            if (removedFormats & IS_UNDERLINE) {
+              announce(
+                generateFormatAnnouncement(
+                  'underline',
+                  false,
+                  mergedConfig.verbosity,
+                  textContent,
+                ),
+              );
+            }
+            if (removedFormats & IS_STRIKETHROUGH) {
+              announce(
+                generateFormatAnnouncement(
+                  'strikethrough',
+                  false,
+                  mergedConfig.verbosity,
+                  textContent,
+                ),
+              );
+            }
+
+            previousFormats.set(key, currentFormat);
+          });
+        });
+      },
+    );
+
+    return () => {
+      unregisterBackspace();
+      unregisterDelete();
+      unregisterEnter();
+      unregisterTab();
+      unregisterIndent();
+      unregisterOutdent();
+      unregisterInsertParagraph();
+      unregisterPaste();
+      unregisterUpdate();
+    };
+  }, [editor, mergedConfig, announce, transformers]);
+
+  // Renders nothing: AriaLiveRegionExtension owns the region.
+  return null;
+}

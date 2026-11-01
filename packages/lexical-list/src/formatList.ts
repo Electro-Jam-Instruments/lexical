@@ -525,6 +525,10 @@ export function updateChildrenListItemValue(list: ListNode): void {
       if (!$isListNode(child.getFirstChild())) {
         value++;
       }
+      // ACCESSIBILITY: Mark all list items dirty to ensure aria-setsize
+      // is recalculated for all siblings when list structure changes.
+      // This triggers updateDOM which updates aria-posinset/aria-setsize.
+      child.markDirty();
     }
   }
 }
@@ -600,18 +604,29 @@ export function $handleIndent(listItemNode: ListItemNode): void {
     if ($isListNode(innerList)) {
       innerList.append(listItemNode);
     }
+  } else if (previousSibling && $isListItemNode(previousSibling)) {
+    // ACCESSIBILITY FIX: Append nested list directly to previous sibling
+    // instead of creating an empty wrapper <li>. This produces proper HTML:
+    //   <li>Previous text<ol><li>Indented item</li></ol></li>
+    // Instead of the problematic pattern with empty wrapper:
+    //   <li>Previous</li><li><ol><li>Indented</li></ol></li>
+    if ($isListNode(parent)) {
+      const newList = $createListNode(parent.getListType())
+        .setTextFormat(parent.getTextFormat())
+        .setTextStyle(parent.getTextStyle());
+      newList.append(listItemNode);
+      previousSibling.append(newList);
+    }
   } else {
-    // otherwise, we need to create a new nested ListNode
-
+    // No previous sibling - this is the first item in the list.
+    // We need to create a wrapper ListItemNode to hold the nested list.
     if ($isListNode(parent)) {
       const newListItem = $copyNode(listItemNode);
       const newList = $copyNode(parent);
       newListItem.append(newList);
       newList.append(listItemNode);
 
-      if (previousSibling) {
-        previousSibling.insertAfter(newListItem);
-      } else if (nextSibling) {
+      if (nextSibling) {
         nextSibling.insertBefore(newListItem);
       } else {
         parent.append(newListItem);
@@ -661,24 +676,36 @@ export function $handleOutdent(listItemNode: ListItemNode): void {
       );
       return;
     }
-    // if it's the first child in it's parent list, insert it into the
-    // great grandparent list before the grandparent
+    // Accessible structure keeps the item's text. An empty wrapper is the old shape.
+    const grandparentHasTextContent = grandparentListItem
+      .getChildren()
+      .some(child => !$isListNode(child));
+
     const firstChild = parentList ? parentList.getFirstChild() : undefined;
     const lastChild = parentList ? parentList.getLastChild() : undefined;
 
     if (listItemNode.is(firstChild)) {
-      grandparentListItem.insertBefore(listItemNode);
-
-      if (parentList.isEmpty()) {
-        grandparentListItem.remove();
+      if (grandparentHasTextContent) {
+        // Accessible structure: grandparent has text, insert after it and remove nested list if empty
+        grandparentListItem.insertAfter(listItemNode);
+        if (parentList.isEmpty()) {
+          parentList.remove();
+        }
+      } else {
+        // Legacy empty wrapper: insert before and remove wrapper if empty
+        grandparentListItem.insertBefore(listItemNode);
+        if (parentList.isEmpty()) {
+          grandparentListItem.remove();
+        }
       }
-      // if it's the last child in it's parent list, insert it into the
-      // great grandparent list after the grandparent.
     } else if (listItemNode.is(lastChild)) {
       grandparentListItem.insertAfter(listItemNode);
-
       if (parentList.isEmpty()) {
-        grandparentListItem.remove();
+        if (grandparentHasTextContent) {
+          parentList.remove();
+        } else {
+          grandparentListItem.remove();
+        }
       }
     } else {
       // otherwise, we need to split the siblings into two new nested lists
@@ -799,8 +826,12 @@ export function $handleListInsertParagraph(
     replacementNode = $createParagraphNode();
     topListNode.insertAfter(replacementNode);
   } else if ($isListItemNode(grandparent)) {
-    replacementNode = $copyNode(grandparent);
-    grandparent.insertAfter(replacementNode);
+    // ACCESSIBILITY FIX: For nested list items, use outdent instead of restructuring.
+    // This prevents screen readers (NVDA) from announcing "out of list" because
+    // $handleOutdent modifies nodes in place rather than destroying/recreating them.
+    // This makes Enter behave consistently with Backspace for empty nested list items.
+    $handleOutdent(listItem);
+    return true;
   } else {
     return false;
   }

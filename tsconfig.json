@@ -21,6 +21,9 @@
     "paths": {
       "lexical": ["./packages/lexical/src/index.ts"],
       "@lexical/a11y": ["./packages/lexical-a11y/src/index.ts"],
+      "@lexical/accessibility": [
+        "./packages/lexical-accessibility/src/index.ts"
+      ],
       "@lexical/clipboard": ["./packages/lexical-clipboard/src/index.ts"],
       "@lexical/code": ["./packages/lexical-code/src/index.ts"],
       "@lexical/code-core": ["./packages/lexical-code-core/src/index.ts"],
@@ -147,6 +150,7 @@
       ],
       "@lexical/history": ["./packages/lexical-history/src/index.ts"],
       "@lexical/html": ["./packages/lexical-html/src/index.ts"],
+      "@lexical/image": ["./packages/lexical-image/src/index.ts"],
       "@lexical/html/BlockIdHTMLExtension": [
         "./packages/lexical-html/src/BlockIdHTMLExtension.ts"
       ],
@@ -387,6 +391,10 @@
       "lexical/src/*": ["./packages/lexical/src/*"],
       "@lexical/a11y/src": ["./packages/lexical-a11y/src"],
       "@lexical/a11y/src/*": ["./packages/lexical-a11y/src/*"],
+      "@lexical/accessibility/src": ["./packages/lexical-accessibility/src"],
+      "@lexical/accessibility/src/*": [
+        "./packages/lexical-accessibility/src/*"
+      ],
       "@lexical/clipboard/src": ["./packages/lexical-clipboard/src"],
       "@lexical/clipboard/src/*": ["./packages/lexical-clipboard/src/*"],
       "@lexical/code/src": ["./packages/lexical-code/src"],
@@ -426,6 +434,8 @@
       "@lexical/history/src/*": ["./packages/lexical-history/src/*"],
       "@lexical/html/src": ["./packages/lexical-html/src"],
       "@lexical/html/src/*": ["./packages/lexical-html/src/*"],
+      "@lexical/image/src": ["./packages/lexical-image/src"],
+      "@lexical/image/src/*": ["./packages/lexical-image/src/*"],
       "@lexical/internal/src": ["./packages/lexical-internal/src"],
       "@lexical/internal/src/*": ["./packages/lexical-internal/src/*"],
       "@lexical/link/src": ["./packages/lexical-link/src"],
