@@ -6,6 +6,10 @@
  *
  */
 
+export {
+  CodeAnnounceExtension,
+  type CodeAnnounceExtensionConfig,
+} from './CodeAnnounceExtension';
 export {CodeExtension} from './CodeExtension';
 export {registerCodeGutter} from './CodeGutter';
 export {

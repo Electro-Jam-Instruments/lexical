@@ -18,6 +18,7 @@ import {
   TabNode,
 } from 'lexical';
 
+import {CodeAnnounceExtension} from './CodeAnnounceExtension';
 import {CodeHighlightNode} from './CodeHighlightNode';
 import {
   $installVscodeCodePasteOverlay,
@@ -30,6 +31,7 @@ import {$exitCodeNodeOnEnter, $isCodeNode, CodeNode} from './CodeNode';
  */
 export const CodeExtension = defineExtension({
   dependencies: [
+    CodeAnnounceExtension,
     // DOMImportExtension support for the nodes registered here. Inert
     // unless the editor routes HTML through the pipeline (e.g. via
     // ClipboardDOMImportExtension or $generateNodesFromDOMViaExtension).

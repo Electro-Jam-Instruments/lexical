@@ -18,6 +18,8 @@ export {
   $isCodeHighlightNode,
   $isCodeNode,
   $outdentLeadingSpaces,
+  CodeAnnounceExtension,
+  type CodeAnnounceExtensionConfig,
   CodeExtension,
   CodeHighlightNode,
   type CodeIndentConfig,
