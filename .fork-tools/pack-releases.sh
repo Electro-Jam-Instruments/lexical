@@ -11,10 +11,16 @@
 
 set -e
 
+TAG="$1"
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
 if [ "$BRANCH" != "a11y-ship" ]; then
   echo "Refusing to pack from '$BRANCH'."
   echo "Check out a11y-ship. That is the only branch we publish."
+  exit 1
+fi
+if [ -z "$TAG" ]; then
+  echo "Usage: bash .fork-tools/pack-releases.sh <release-tag>"
+  echo "Example: bash .fork-tools/pack-releases.sh v0.53.0-a11y.2"
   exit 1
 fi
 
@@ -57,6 +63,13 @@ PACKAGES=(
   "lexical-yjs"
 )
 
+restore_packages() {
+  for pkg in "${PACKAGES[@]}"; do
+    git checkout -- "packages/$pkg/package.json" 2>/dev/null || true
+  done
+}
+trap restore_packages EXIT
+
 # Step 1: Clean stale build artifacts
 # Stale dist folders and leftover root-level bundles from the pre-v0.49 flat
 # layout cause "inaccessible 'this' type" (TS2527) errors during the build.
@@ -81,22 +94,18 @@ echo ""
 echo "Step 2: Running production build..."
 npm run build -- --prod --release
 
-# Step 3: Resolve workspace:* in package.json dependencies
-# npm pack does NOT resolve the workspace:* protocol - consuming projects
-# outside the monorepo will get EUNSUPPORTEDPROTOCOL errors.
-# Read the monorepo version and replace all workspace:* references.
+# Step 3: Point lexical dependencies at this release.
+# A plain version such as "0.53.0" is fetched from the public registry.
+# The URL has to be the tarball in the tag we are about to publish.
 echo ""
-echo "Step 3: Resolving workspace:* dependencies..."
+echo "Step 3: Pointing lexical dependencies at $TAG..."
 MONOREPO_VERSION=$(node -e "console.log(require('./package.json').version)")
 echo "  Monorepo version: $MONOREPO_VERSION"
 
 for pkg in "${PACKAGES[@]}"; do
   PKG_JSON="packages/$pkg/package.json"
   if [ -f "$PKG_JSON" ]; then
-    if grep -q '"workspace:\*"' "$PKG_JSON"; then
-      echo "  Resolving workspace:* in $pkg -> $MONOREPO_VERSION"
-      sed -i 's/"workspace:\*"/"'"$MONOREPO_VERSION"'"/g' "$PKG_JSON"
-    fi
+    node .fork-tools/release-deps.mjs rewrite "$TAG" "$MONOREPO_VERSION" "$PKG_JSON"
   fi
 done
 
@@ -121,8 +130,14 @@ for pkg in "${PACKAGES[@]}"; do
   fi
 done
 
+# The packed package.json must not still name a public lexical version,
+# and every URL must be a tarball this run just wrote.
+echo ""
+echo "Step 4b: Checking packed dependencies..."
+node .fork-tools/release-deps.mjs check "$TAG" "$MONOREPO_VERSION" "$RELEASE_DIR"
+
 # Step 5: Restore workspace:* in package.json files
-# Undo the version resolution so source files stay clean for git
+# Undo the URL rewrite so source files stay clean for git
 echo ""
 echo "Step 5: Restoring workspace:* in package.json files..."
 for pkg in "${PACKAGES[@]}"; do
@@ -144,9 +159,8 @@ echo ""
 echo "Total packages: $(ls "$RELEASE_DIR"/*.tgz | wc -l)"
 echo ""
 echo "Next steps (see .fork-tools/PUBLISHING.md):"
-echo "  gh release create v$MONOREPO_VERSION-a11y.N \\"
+echo "  gh release create $TAG \\"
 echo "    --repo Electro-Jam-Instruments/lexical \\"
-echo "    --title \"Lexical v$MONOREPO_VERSION accessibility\" \\"
-echo "    --notes \"...\" \\"
+echo "    --target a11y-ship \\"
+echo "    --title \"Lexical $TAG\" \\"
 echo "    releases/*.tgz"
-echo "N is the next number for this Lexical version. v0.53.0 starts at a11y.1."

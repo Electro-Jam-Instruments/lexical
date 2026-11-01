@@ -13,25 +13,23 @@ The apps install one set of packages, from one branch.
 
 The tag is `v{Lexical version}-a11y.{n}`.
 
-The first pack of Lexical 0.53.0 is `v0.53.0-a11y.1`. The next pack of the same Lexical version is `v0.53.0-a11y.2`.
+`v0.53.0-a11y.1` still sends unnamed packages to the public registry. Do not point an app at it. `v0.53.0-a11y.2` is the first pack where every Lexical dependency is a file in that same release.
 
 ## Pack
 
-From `a11y-ship`:
+From `a11y-ship`, pass the tag you are about to create:
 
 ```bash
-bash .fork-tools/pack-releases.sh
+bash .fork-tools/pack-releases.sh v0.53.0-a11y.2
 ```
 
-The script refuses to run on any other branch. It builds, writes tarballs into `releases/`, and puts `workspace:*` back so the branch stays clean.
-
-`gh` needs the workflow scope.
+The script refuses to run on any other branch. It writes each `lexical` and `@lexical/*` dependency as a tarball URL for that tag, packs, checks those URLs, then puts `workspace:*` back.
 
 ```bash
-gh release create v0.53.0-a11y.1 \
+gh release create v0.53.0-a11y.2 \
   --repo Electro-Jam-Instruments/lexical \
-  --title "Lexical v0.53.0 accessibility" \
-  --notes "What this pack adds." \
+  --target a11y-ship \
+  --title "Lexical v0.53.0-a11y.2" \
   releases/*.tgz
 ```
 
@@ -39,10 +37,10 @@ Push `a11y-ship` to `origin` (Electro-Jam-Instruments/lexical) before the releas
 
 ## Point an app at the pack
 
-Every `@lexical/*` and `lexical` dependency uses the same tag:
+An app lists only the packages it imports. The rest follow this release, because each tarball depends on the other tarballs in the same tag.
 
 ```
-https://github.com/Electro-Jam-Instruments/lexical/releases/download/v0.53.0-a11y.1/lexical-0.53.0.tgz
+https://github.com/Electro-Jam-Instruments/lexical/releases/download/v0.53.0-a11y.2/lexical-0.53.0.tgz
 ```
 
 The tarball name is the package directory name plus the version. `@lexical/accessibility` is `lexical-accessibility-0.53.0.tgz`.
