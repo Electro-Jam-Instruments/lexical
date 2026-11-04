@@ -58,7 +58,7 @@ import {$createListNode, $isListNode, type ListType} from './';
 import {$handleIndent, $handleOutdent, mergeLists} from './formatList';
 import {GENERATED_LISTITEM} from './LexicalListGeneratedJSON';
 import {ListNode} from './LexicalListNode';
-import {$getListDepth, $getNewListStart, $isNestedListNode} from './utils';
+import {$getNewListStart, $isNestedListNode} from './utils';
 
 /**
  * For the selection's element points in `parent`, which holds the consecutive
@@ -296,34 +296,6 @@ export class ListItemNode extends ElementNode {
       setDOMStyleFromCSS(dom.style, nextStyle, prevStyle);
     }
     applyMarkerStyles(dom, this, prevNode);
-
-    // ACCESSIBILITY: Add aria-posinset, aria-setsize, and aria-level for screen reader announcements
-    // This allows NVDA/JAWS to announce "X of Y at level Z" when navigating list items
-    const parent = this.getParent();
-    if ($isListNode(parent)) {
-      const siblings = parent.getChildren();
-      let position = 0;
-      let total = 0;
-      for (const sibling of siblings) {
-        if ($isListItemNode(sibling)) {
-          // Count all list items EXCEPT empty nested list wrappers
-          // (wrappers where the first child is a ListNode and there's no text content)
-          if (!$isNestedListNode(sibling)) {
-            total++;
-            if (sibling.getKey() === this.getKey()) {
-              position = total;
-            }
-          }
-        }
-      }
-      if (position > 0 && total > 0) {
-        dom.setAttribute('aria-posinset', String(position));
-        dom.setAttribute('aria-setsize', String(total));
-      }
-      // Add aria-level for nesting depth (1 = top level, 2 = first nested level, etc.)
-      const level = $getListDepth(parent);
-      dom.setAttribute('aria-level', String(level));
-    }
   }
 
   updateDOM(
@@ -740,12 +712,7 @@ function $setListItemThemeClassNames(
   const isCheckList =
     $isListNode(parentNode) && parentNode.getListType() === 'check';
   const checked = node.getChecked();
-  // ACCESSIBILITY: only treat an li as a nested-list *wrapper* when the list is
-  // its FIRST child. Upstream checks whether any child is a ListNode, which also
-  // matches the accessible structure <li>Text<ol><li>nested</li></ol></li> and
-  // hides that item's marker. Screen readers rely on the marker to announce the
-  // item, so only the legacy empty-wrapper form should get the nested class.
-  const isNested = $isNestedListNode(node);
+  const isNested = node.getChildren().some(child => $isListNode(child));
 
   // Always remove the variable theme classes first so that the className
   // string stays in a canonical order regardless of how the dom got here
