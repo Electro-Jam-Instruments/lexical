@@ -18,6 +18,7 @@ import {
 import {registerCheckList} from './checkList';
 import {ListItemNode} from './LexicalListItemNode';
 import {ListNode} from './LexicalListNode';
+import {ListAnnounceExtension} from './ListAnnounceExtension';
 import {ListImportRules} from './ListImportExtension';
 import {registerList, registerListStrictIndentTransform} from './registerList';
 
@@ -43,6 +44,7 @@ export const ListExtension = defineExtension({
     shouldPreserveNumbering: false,
   }),
   dependencies: [
+    ListAnnounceExtension,
     // DOMImportExtension support for the nodes registered here. Inert
     // unless the editor routes HTML through the pipeline (e.g. via
     // ClipboardDOMImportExtension or $generateNodesFromDOMViaExtension).

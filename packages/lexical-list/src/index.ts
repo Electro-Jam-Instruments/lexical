@@ -34,6 +34,10 @@ export {
   type ListConfig,
   ListExtension,
 } from './LexicalListExtension';
+export {
+  ListAnnounceExtension,
+  type ListAnnounceExtensionConfig,
+} from './ListAnnounceExtension';
 export {ListImportRules, ListSchema} from './ListImportExtension';
 export {
   INSERT_ORDERED_LIST_COMMAND,
