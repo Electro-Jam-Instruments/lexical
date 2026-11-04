@@ -19,10 +19,14 @@ import {
   $createTabNode,
   $getEditor,
   $getSelection,
+  $isDecoratorNode,
+  $isElementNode,
   $isRangeSelection,
+  $isTextNode,
   $setSelection,
   type BaseSelection,
   defineExtension,
+  type LexicalNode,
   type RangeSelection,
   safeCast,
   shallowMergeConfig,
@@ -170,6 +174,45 @@ export const DEFAULT_IMPORT_MIME_TYPE_PRIORITY: ImportMimeTypePriority = {
   'text/uri-list': 30,
 };
 
+/**
+ * True when pasted nodes carry something a person can read or that is a real
+ * object (an image, a rule, a code block). An empty paragraph does not count.
+ * Callers use this to keep an empty HTML or Lexical payload from swallowing
+ * the text/plain that is also on the clipboard.
+ */
+function $clipboardNodesHaveContent(nodes: LexicalNode[]): boolean {
+  for (const node of nodes) {
+    if ($nodeHasClipboardContent(node)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function $nodeHasClipboardContent(node: LexicalNode): boolean {
+  if ($isTextNode(node)) {
+    return node.getTextContent().trim().length > 0;
+  }
+  if ($isDecoratorNode(node)) {
+    return true;
+  }
+  if ($isElementNode(node)) {
+    const children = node.getChildren();
+    if (children.length === 0) {
+      // A copied code block or table can be empty and still be the paste.
+      // An empty paragraph is just a wrapper and must not hide text/plain.
+      return node.getType() !== 'paragraph';
+    }
+    for (const child of children) {
+      if ($nodeHasClipboardContent(child)) {
+        return true;
+      }
+    }
+    return false;
+  }
+  return node.getTextContent().trim().length > 0;
+}
+
 function trustHTML(html: string): string | TrustedHTML {
   // eslint-disable-next-line no-restricted-syntax
   if (window.trustedTypes && window.trustedTypes.createPolicy) {
@@ -200,6 +243,12 @@ const $defaultLexicalEditorImporter: ImportMimeTypeFunction = (
       Array.isArray(payload.nodes)
     ) {
       const nodes = $generateNodesFromSerializedNodes(payload.nodes);
+      // An empty Lexical payload is still truthy JSON. Inserting it and
+      // returning true drops text/plain, so a copy that round-trips as an
+      // empty node list pastes nothing.
+      if (!$clipboardNodesHaveContent(nodes)) {
+        return $next();
+      }
       $insertGeneratedNodes(editor, nodes, selection);
       return true;
     }
@@ -226,6 +275,11 @@ const $defaultHtmlImporter: ImportMimeTypeFunction = (
     const parser = new DOMParser();
     const dom = parser.parseFromString(trustHTML(data) as string, 'text/html');
     const nodes = $generateNodesFromDOM(editor, dom);
+    // HTML that parses to nothing (a wrapper, a comment, an empty paragraph)
+    // must not count as a successful paste. text/plain is the next candidate.
+    if (!$clipboardNodesHaveContent(nodes)) {
+      return $next();
+    }
     $insertGeneratedNodes(editor, nodes, selection);
     return true;
   } catch (error) {

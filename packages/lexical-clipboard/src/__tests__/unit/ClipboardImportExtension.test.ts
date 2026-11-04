@@ -423,6 +423,30 @@ describe('$insertDataTransferForRichText selection argument (#6278)', () => {
     expect(paragraphTexts(editor)).toEqual(['https://lexical.dev', 'second']);
   });
 
+  test('empty HTML does not swallow text/plain', () => {
+    // A copy from another app often includes a text/html wrapper that parses
+    // to nothing, plus the real words in text/plain. Notepad keeps the words.
+    // The editor has to as well.
+    using editor = makeEditor();
+    const dt = new DataTransfer();
+    dt.setData('text/html', '<p></p>');
+    dt.setData('text/plain', 'from clarity');
+    $insertOverFirstParagraph(editor, dt as unknown as DataTransfer);
+    expect(paragraphTexts(editor)).toEqual(['from clarity', 'second']);
+  });
+
+  test('empty Lexical JSON does not swallow text/plain', () => {
+    using editor = makeEditor();
+    const dt = new DataTransfer();
+    dt.setData(
+      'application/x-lexical-editor',
+      JSON.stringify({namespace: editor._config.namespace, nodes: []}),
+    );
+    dt.setData('text/plain', 'from clarity');
+    $insertOverFirstParagraph(editor, dt as unknown as DataTransfer);
+    expect(paragraphTexts(editor)).toEqual(['from clarity', 'second']);
+  });
+
   test('text/html is inserted at the supplied selection', () => {
     // Control: the text/html handler already honored the argument before
     // this fix, so this passes with or without it.
