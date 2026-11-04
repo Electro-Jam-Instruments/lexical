@@ -38,9 +38,14 @@ export interface ListAnnounceExtensionConfig {
   level: string;
   /**
    * Announced when Tab cannot move the item any deeper. `%d` is the level the
-   * item is still at. Shift+Tab at the far left says `level` again instead.
+   * item is still at.
    */
-  limit: string;
+  maxLevel: string;
+  /**
+   * Announced when Shift+Tab cannot move the item any further left. `%d` is
+   * the level the item is still at.
+   */
+  minLevel: string;
   /** Marker names for bulleted lists, one per level, repeating. */
   bulletNames: readonly string[];
   /** Marker names for numbered lists, one per level, repeating. */
@@ -98,7 +103,7 @@ function format(template: string, level: number, marker: string): string {
  * - The level and marker after Tab or Shift+Tab, such as "Level 2, hollow
  *   bullet".
  * - Tab at the deepest level, "Max, level 3", and Shift+Tab at the far left,
- *   which says "Level 1, bullet" again so the user knows where they are.
+ *   "Min, level 1". Both say the level the item is still at.
  *
  * Whether Tab moved the item is learned by comparing the item before and after
  * the command runs, so the speech stays correct if the indent rules change.
@@ -112,7 +117,8 @@ export const ListAnnounceExtension = defineExtension({
     checkStarted: 'Check list started',
     disabled: false,
     level: 'Level %d, %s',
-    limit: 'Max, level %d',
+    maxLevel: 'Max, level %d',
+    minLevel: 'Min, level %d',
     numberNames: [
       'number',
       'capital letter',
@@ -132,7 +138,8 @@ export const ListAnnounceExtension = defineExtension({
       checkStarted,
       disabled,
       level,
-      limit,
+      maxLevel,
+      minLevel,
       numberNames,
       numberStarted,
     } = state.getOutput();
@@ -177,8 +184,10 @@ export const ListAnnounceExtension = defineExtension({
         return;
       }
       const moved = after.indent !== before.indent;
-      if (!moved && direction === 'indent') {
-        say(limit.peek().replace('%d', String(after.indent + 1)));
+      if (!moved) {
+        const template =
+          direction === 'indent' ? maxLevel.peek() : minLevel.peek();
+        say(template.replace('%d', String(after.indent + 1)));
         return;
       }
       say(
@@ -227,6 +236,28 @@ export const ListAnnounceExtension = defineExtension({
             return;
           }
           if (dirtyElements.size === 0) {
+            return;
+          }
+          // The item the caret is in changed level without this announcer
+          // seeing the command, because another handler for it ran first.
+          // Say where it landed. Nothing can be said about a move that did not
+          // happen, since there was nothing to compare.
+          const movedTo = editorState.read(() => {
+            const here = $itemPlace(null);
+            if (here === null) {
+              return null;
+            }
+            const was = prevEditorState.read(() => $itemPlace(here.key));
+            return was !== null && was.indent !== here.indent ? here : null;
+          });
+          if (movedTo !== null) {
+            say(
+              format(
+                level.peek(),
+                movedTo.indent + 1,
+                markerName(movedTo.type, movedTo.indent),
+              ),
+            );
             return;
           }
           // A list that did not exist a moment ago, at the top level, with the

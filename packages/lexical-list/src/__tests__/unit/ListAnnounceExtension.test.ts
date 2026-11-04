@@ -10,6 +10,7 @@ import {
   buildEditorFromExtensions,
   defineExtension,
   type LexicalEditorWithDispose,
+  TabIndentationExtension,
 } from '@lexical/extension';
 import {
   $createListItemNode,
@@ -45,11 +46,15 @@ function clearLiveRegion(): void {
   }
 }
 
-function buildEditor(hasStrictIndent = false): LexicalEditorWithDispose {
+function buildEditor(
+  hasStrictIndent = false,
+  tabFirst = false,
+): LexicalEditorWithDispose {
   const editor = buildEditorFromExtensions(
     defineExtension({
       dependencies: [
         RichTextExtension,
+        ...(tabFirst ? [TabIndentationExtension] : []),
         configExtension(ListExtension, {hasStrictIndent}),
       ],
       name: '[root]',
@@ -117,7 +122,7 @@ describe('ListAnnounceExtension', () => {
     expect(readLiveRegion()).toBe('Level 1, bullet');
   });
 
-  test('says the level again when Shift+Tab cannot move', () => {
+  test('says Min when Shift+Tab cannot move', () => {
     vi.useFakeTimers();
     onTestFinished(() => void vi.useRealTimers());
     using editor = buildEditor();
@@ -126,7 +131,7 @@ describe('ListAnnounceExtension', () => {
 
     press(editor, OUTDENT_CONTENT_COMMAND);
 
-    expect(readLiveRegion()).toBe('Level 1, bullet');
+    expect(readLiveRegion()).toBe('Min, level 1');
   });
 
   test('says Max when Tab cannot move', () => {
@@ -144,6 +149,18 @@ describe('ListAnnounceExtension', () => {
     press(editor, INDENT_CONTENT_COMMAND);
 
     expect(readLiveRegion()).toBe('Max, level 1');
+  });
+
+  test('still says the level when another indent handler ran first', () => {
+    vi.useFakeTimers();
+    onTestFinished(() => void vi.useRealTimers());
+    using editor = buildEditor(false, true);
+    addList(editor, 'bullet');
+    clearLiveRegion();
+
+    press(editor, INDENT_CONTENT_COMMAND);
+
+    expect(readLiveRegion()).toBe('Level 2, hollow bullet');
   });
 
   test('names numbered markers by level', () => {
