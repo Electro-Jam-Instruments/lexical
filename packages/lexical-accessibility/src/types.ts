@@ -7,8 +7,7 @@
  */
 
 import type {NodeAnnouncementConfig} from './nodeConfigTypes';
-
-import {Transformer} from '@lexical/markdown';
+import type {Transformer} from '@lexical/markdown';
 
 /**
  * Configuration options for the AccessibilityPlugin
@@ -40,6 +39,15 @@ export interface AccessibilityConfig {
    * @default true
    */
   announceStructural?: boolean;
+
+  /**
+   * Announce "Indented" and "Outdented" when Tab or Shift+Tab moves a list
+   * item. Turn this off when `ListAnnounceExtension` from `@lexical/list`
+   * speaks the level instead. Unlike `announceStructural`, this leaves
+   * every other structural announcement, such as emoji, on.
+   * @default true
+   */
+  announceIndent?: boolean;
 
   /**
    * Use CSS styling for bold, italic, underline, strikethrough instead of
@@ -81,7 +89,7 @@ export interface AccessibilityPluginProps {
    * Defaults to ACCESSIBILITY_TRANSFORMERS which includes HR + standard transformers.
    * Pass your own array to add app-specific transformers or override defaults.
    */
-  transformers?: Array<Transformer>;
+  transformers?: Transformer[];
   /**
    * Additional node announcement configs for custom node types (e.g., EmojiNode).
    * These are merged with the built-in configs (heading, list, quote, etc.).
@@ -97,7 +105,7 @@ export interface AccessibilityPluginProps {
    * ```
    */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  additionalNodeConfigs?: Array<NodeAnnouncementConfig<any>>;
+  additionalNodeConfigs?: NodeAnnouncementConfig<any>[];
 }
 
 /**
@@ -114,6 +122,7 @@ export interface Announcement {
  */
 export const DEFAULT_CONFIG: Required<AccessibilityConfig> = {
   announceFormats: true,
+  announceIndent: true,
   announceStructural: true,
   enabled: true,
   useCSSFormatting: true,

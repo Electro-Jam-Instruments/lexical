@@ -372,7 +372,7 @@ export function AccessibilityPlugin({
         const newLevel =
           currentLevel !== undefined ? currentLevel + 1 : undefined;
 
-        if (mergedConfig.announceStructural) {
+        if (mergedConfig.announceStructural && mergedConfig.announceIndent) {
           const message = generateIndentAnnouncement(
             'indent',
             mergedConfig.verbosity,
@@ -397,7 +397,7 @@ export function AccessibilityPlugin({
             ? Math.max(0, currentLevel - 1)
             : undefined;
 
-        if (mergedConfig.announceStructural) {
+        if (mergedConfig.announceStructural && mergedConfig.announceIndent) {
           const message = generateIndentAnnouncement(
             'outdent',
             mergedConfig.verbosity,
