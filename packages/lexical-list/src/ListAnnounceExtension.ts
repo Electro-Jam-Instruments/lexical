@@ -21,7 +21,7 @@ import {
   safeCast,
 } from 'lexical';
 
-import {$isListItemNode} from './LexicalListItemNode';
+import {$isListItemNode, type ListItemNode} from './LexicalListItemNode';
 import {$isListNode, type ListType} from './LexicalListNode';
 
 export interface ListAnnounceExtensionConfig {
@@ -67,6 +67,25 @@ interface ItemPlace {
 
 type Direction = 'indent' | 'outdent';
 
+/**
+ * How many lists deep an item is, counting from 0. `getIndent()` does the same
+ * but throws for a list with no parent, which a list placed directly in a
+ * container can be, and this runs on every commit.
+ */
+function $indentOf(item: ListItemNode): number {
+  let indent = 0;
+  let list = item.getParent();
+  while (list !== null) {
+    const outer = list.getParent();
+    if (!$isListItemNode(outer)) {
+      break;
+    }
+    indent++;
+    list = outer.getParent();
+  }
+  return indent;
+}
+
 function $itemPlace(key: NodeKey | null): ItemPlace | null {
   let item = null;
   if (key === null) {
@@ -86,7 +105,7 @@ function $itemPlace(key: NodeKey | null): ItemPlace | null {
     return null;
   }
   return {
-    indent: item.getIndent(),
+    indent: $indentOf(item),
     key: item.getKey(),
     type: list.getListType(),
   };

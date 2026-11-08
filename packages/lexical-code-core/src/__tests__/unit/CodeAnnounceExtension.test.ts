@@ -311,7 +311,7 @@ describe('CodeAnnounceExtension', () => {
     });
   });
 
-  test('stays quiet when a code block becomes a quote', () => {
+  test('lets the quote announcer speak when a code block becomes a quote', () => {
     using editor = buildEditor();
     addCode(editor);
     clearLiveRegion();
@@ -321,7 +321,9 @@ describe('CodeAnnounceExtension', () => {
       {discrete: true},
     );
 
-    expect(readLiveRegion()).toBe('');
+    // The code announcer says nothing about the code block going away, and the
+    // quote announcer says what the block became.
+    expect(readLiveRegion()).toBe('Block quote');
   });
 
   test('says nothing while disabled, and resumes when turned back on', () => {
