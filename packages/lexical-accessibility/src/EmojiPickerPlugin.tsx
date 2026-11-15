@@ -6,6 +6,7 @@
  *
  */
 
+import type {TextNode} from 'lexical';
 import type {JSX} from 'react';
 
 import {useLexicalComposerContext} from '@lexical/react/LexicalComposerContext';
@@ -13,12 +14,7 @@ import {
   LexicalTypeaheadMenuPlugin,
   MenuOption,
 } from '@lexical/react/LexicalTypeaheadMenuPlugin';
-import {
-  $createTextNode,
-  $getSelection,
-  $isRangeSelection,
-  TextNode,
-} from 'lexical';
+import {$createTextNode, $getSelection, $isRangeSelection} from 'lexical';
 import * as React from 'react';
 import {useCallback, useEffect, useMemo, useState} from 'react';
 import * as ReactDOM from 'react-dom';
@@ -28,18 +24,21 @@ import builtInEmojiList from './emoji-list';
 export class EmojiOption extends MenuOption {
   title: string;
   emoji: string;
-  keywords: Array<string>;
+  keywords: string[];
 
   constructor(
     title: string,
     emoji: string,
     options: {
-      keywords?: Array<string>;
+      keywords?: string[];
     },
   ) {
     super(title);
     this.title = title;
     this.emoji = emoji;
+    // Read the shortcode once. The glyph already has its own name in the screen
+    // reader's dictionary, and the shortcode is what the user can type.
+    this.ariaLabel = title.replace(/_/g, ' ');
     this.keywords = options.keywords || [];
   }
 }
@@ -74,7 +73,8 @@ export function EmojiMenuItem({
       className={className}
       ref={option.setRefElement}
       role="option"
-      aria-selected={isSelected}
+      aria-label={option.ariaLabel}
+      aria-selected={isSelected ? true : undefined}
       id={'typeahead-item-' + index}
       onMouseEnter={onMouseEnter}
       onClick={onClick}>
@@ -89,8 +89,8 @@ export type Emoji = {
   emoji: string;
   description: string;
   category: string;
-  aliases: Array<string>;
-  tags: Array<string>;
+  aliases: string[];
+  tags: string[];
   unicode_version: string;
   ios_version: string;
   skin_tones?: boolean;
@@ -137,7 +137,7 @@ export interface EmojiPickerPluginProps {
    * <EmojiPickerPlugin emojiData={fullEmojiList} />
    * ```
    */
-  emojiData?: Array<Emoji>;
+  emojiData?: Emoji[];
   /**
    * Dynamic import function for emoji data (for code splitting).
    * Takes precedence over emojiData if provided.
@@ -149,7 +149,7 @@ export interface EmojiPickerPluginProps {
    * />
    * ```
    */
-  emojiDataLoader?: () => Promise<{default: Array<Emoji>}>;
+  emojiDataLoader?: () => Promise<{default: Emoji[]}>;
   /**
    * Maximum number of suggestions to show.
    * Default: 10
@@ -187,15 +187,16 @@ export function EmojiPickerPlugin({
 }: EmojiPickerPluginProps = {}): JSX.Element | null {
   const [editor] = useLexicalComposerContext();
   const [queryString, setQueryString] = useState<string | null>(null);
-  const [emojis, setEmojis] = useState<Array<Emoji>>(
+  const [emojis, setEmojis] = useState<Emoji[]>(
     // Use built-in list as initial state if no loader/data provided
     !emojiDataLoader && !emojiData ? builtInEmojiList : [],
   );
 
   useEffect(() => {
     if (emojiDataLoader) {
-      emojiDataLoader().then((file) => setEmojis(file.default));
+      emojiDataLoader().then(file => setEmojis(file.default));
     } else if (emojiData) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- existing behavior, unchanged here
       setEmojis(emojiData);
     }
     // If neither is provided, we use the built-in list (set in initial state)
@@ -216,7 +217,7 @@ export function EmojiPickerPlugin({
 
   const checkForTriggerMatch = useDoubleColonTriggerMatch();
 
-  const options: Array<EmojiOption> = useMemo(() => {
+  const options: EmojiOption[] = useMemo(() => {
     return emojiOptions
       .filter((option: EmojiOption) => {
         return queryString != null
@@ -273,8 +274,8 @@ export function EmojiPickerPlugin({
 
         return anchorElementRef.current && options.length
           ? ReactDOM.createPortal(
-              <div className="typeahead-popover emoji-menu">
-                <ul>
+              <div className="typeahead-popover emoji-menu" role="presentation">
+                <ul role="presentation">
                   {options.map((option: EmojiOption, index) => (
                     <EmojiMenuItem
                       key={option.key}
