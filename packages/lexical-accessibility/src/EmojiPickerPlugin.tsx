@@ -17,7 +17,6 @@ import {
 import {$createTextNode, $getSelection, $isRangeSelection} from 'lexical';
 import * as React from 'react';
 import {useCallback, useEffect, useMemo, useState} from 'react';
-import * as ReactDOM from 'react-dom';
 
 import builtInEmojiList from './emoji-list';
 
@@ -39,6 +38,9 @@ export class EmojiOption extends MenuOption {
     // Read the shortcode once. The glyph already has its own name in the screen
     // reader's dictionary, and the shortcode is what the user can type.
     this.ariaLabel = title.replace(/_/g, ' ');
+    // The default menu shows the icon before the title, so the glyph is not
+    // read twice and the structure stays the one Lexical makes accessible.
+    this.icon = <span aria-hidden="true">{emoji}</span>;
     this.keywords = options.keywords || [];
   }
 }
@@ -53,7 +55,7 @@ export interface EmojiMenuItemProps {
 
 /**
  * Default emoji menu item component.
- * Can be customized by providing your own menuRenderFn to EmojiPickerPlugin.
+ * Kept for apps that render their own menu. The picker itself uses Lexical's default menu.
  */
 export function EmojiMenuItem({
   index,
@@ -264,39 +266,6 @@ export function EmojiPickerPlugin({
       triggerFn={checkForTriggerMatch}
       options={options}
       menuAriaLabel="Emoji"
-      menuRenderFn={(
-        anchorElementRef,
-        {selectedIndex, selectOptionAndCleanUp, setHighlightedIndex},
-      ) => {
-        if (anchorElementRef.current == null || options.length === 0) {
-          return null;
-        }
-
-        return anchorElementRef.current && options.length
-          ? ReactDOM.createPortal(
-              <div className="typeahead-popover emoji-menu" role="presentation">
-                <ul role="presentation">
-                  {options.map((option: EmojiOption, index) => (
-                    <EmojiMenuItem
-                      key={option.key}
-                      index={index}
-                      isSelected={selectedIndex === index}
-                      onClick={() => {
-                        setHighlightedIndex(index);
-                        selectOptionAndCleanUp(option);
-                      }}
-                      onMouseEnter={() => {
-                        setHighlightedIndex(index);
-                      }}
-                      option={option}
-                    />
-                  ))}
-                </ul>
-              </div>,
-              anchorElementRef.current,
-            )
-          : null;
-      }}
     />
   );
 }
