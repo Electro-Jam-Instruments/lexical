@@ -259,8 +259,29 @@ export function EmojiPickerPlugin({
     [editor],
   );
 
+  // An app-wide Escape shortcut runs before the editor sees the key. Marking
+  // the editor while the menu is open lets that shortcut leave Escape to the
+  // menu, which closes it.
+  const setOwnsEscape = useCallback(
+    (owns: boolean) => {
+      const root = editor.getRootElement();
+      if (root === null) {
+        return;
+      }
+      if (owns) {
+        root.setAttribute('data-owns-escape', '');
+      } else {
+        root.removeAttribute('data-owns-escape');
+      }
+    },
+    [editor],
+  );
+  useEffect(() => () => setOwnsEscape(false), [setOwnsEscape]);
+
   return (
     <LexicalTypeaheadMenuPlugin
+      onOpen={() => setOwnsEscape(true)}
+      onClose={() => setOwnsEscape(false)}
       onQueryChange={setQueryString}
       onSelectOption={onSelectOption}
       triggerFn={checkForTriggerMatch}

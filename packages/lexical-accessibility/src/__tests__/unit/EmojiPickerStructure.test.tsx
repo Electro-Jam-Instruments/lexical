@@ -17,6 +17,7 @@ import {
   $getRoot,
   configExtension,
   defineExtension,
+  KEY_ESCAPE_COMMAND,
   type LexicalEditor,
 } from 'lexical';
 import * as React from 'react';
@@ -60,6 +61,7 @@ function GrabEditor({onEditor}: {onEditor: (editor: LexicalEditor) => void}) {
 }
 
 let reactRoot: Root | null = null;
+let pickerEditor: LexicalEditor | null = null;
 
 // jsdom has no layout, and the menu watches its anchor for size changes.
 beforeAll(() => {
@@ -108,6 +110,7 @@ async function openPicker(): Promise<HTMLElement> {
     );
     await new Promise(resolve => setTimeout(resolve, 300));
   });
+  pickerEditor = editor;
   const listbox = document.querySelector<HTMLElement>('[role="listbox"]');
   expect(listbox).not.toBeNull();
   return listbox!;
@@ -157,5 +160,22 @@ describe('EmojiPickerPlugin menu structure', () => {
       o.getAttribute('aria-label'),
     );
     expect(labels).toEqual(['sweat smile', 'smile', 'sleepy']);
+  });
+});
+
+describe('EmojiPickerPlugin and an app-wide Escape shortcut', () => {
+  test('the editor is marked as owning Escape only while the menu is open', async () => {
+    await openPicker();
+    const root = pickerEditor!.getRootElement()!;
+    expect(root.hasAttribute('data-owns-escape')).toBe(true);
+    await act(async () => {
+      pickerEditor!.dispatchCommand(
+        KEY_ESCAPE_COMMAND,
+        new KeyboardEvent('keydown', {key: 'Escape'}),
+      );
+      await new Promise(resolve => setTimeout(resolve, 100));
+    });
+    expect(document.querySelector('[role="listbox"]')).toBeNull();
+    expect(root.hasAttribute('data-owns-escape')).toBe(false);
   });
 });
