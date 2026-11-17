@@ -24,6 +24,27 @@ if [ -z "$TAG" ]; then
   exit 1
 fi
 
+# ACCESSIBILITY GATE - no release without every accessibility test passing.
+# Covers every package that announces, names or lays out something for a screen
+# reader. A failure stops the pack; there is no switch to skip it.
+echo "Running the accessibility tests..."
+A11Y_TEST_PACKAGES=(
+  packages/lexical-a11y
+  packages/lexical-accessibility
+  packages/lexical-react
+  packages/lexical-list
+  packages/lexical-rich-text
+  packages/lexical-link
+  packages/lexical-code-core
+)
+if ! pnpm_config_verify_deps_before_run=false npx vitest run --project unit "${A11Y_TEST_PACKAGES[@]}"; then
+  echo ""
+  echo "ACCESSIBILITY TESTS FAILED. Nothing was packed."
+  exit 1
+fi
+echo "Accessibility tests passed."
+echo ""
+
 echo "========================================"
 echo "Lexical ship branch - Build & Pack"
 echo "========================================"
