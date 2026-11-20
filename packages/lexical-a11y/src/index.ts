@@ -866,8 +866,19 @@ function describeChange(
   }
   const addedWords = readWords(added);
   const removedWords = readWords(removed);
+  const formatChange = describeFormatChange(
+    before,
+    after,
+    appearVerb,
+    words.removed,
+  );
   if (addedWords && removedWords) {
-    return `${words.changed} ${addedWords}`;
+    // Typing *some words* makes the words italic and drops the asterisks, and
+    // an undo brings the asterisks back. The words are the same and only the
+    // markup and the format moved, so say the format.
+    return justPunctuationDiffers(added, removed) && formatChange
+      ? formatChange
+      : `${words.changed} ${addedWords}`;
   }
   if (addedWords) {
     return `${appearVerb} ${addedWords}`;
@@ -875,7 +886,16 @@ function describeChange(
   if (removedWords) {
     return `${words.removed} ${removedWords}`;
   }
-  return describeFormatChange(before, after, appearVerb, words.removed);
+  return formatChange;
+}
+
+function justPunctuationDiffers(a: string, b: string): boolean {
+  const lettersOf = (text: string) =>
+    text
+      .replace(/[^\p{L}\p{N}]+/gu, ' ')
+      .trim()
+      .toLowerCase();
+  return lettersOf(a) !== '' && lettersOf(a) === lettersOf(b);
 }
 
 function listItemPhrase(items: ListItemInfo[]): string {

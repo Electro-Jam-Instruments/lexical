@@ -439,6 +439,32 @@ describe('HistoryAnnounceExtension says what changed', () => {
     expect(redone).not.toMatch(/^Redone/);
   });
 
+  test('typing *words* that becomes italic is described as the format, not the asterisks', async () => {
+    using editor = buildWithHistory();
+    push(editor, () => {
+      $getRoot()
+        .clear()
+        .append(
+          $createParagraphNode().append($createTextNode('say *some words*')),
+        );
+    });
+    push(editor, () => {
+      const paragraph = $getRoot().getFirstChild();
+      if ($isElementNode(paragraph)) {
+        paragraph
+          .clear()
+          .append(
+            $createTextNode('say '),
+            $createTextNode('some words').toggleFormat('italic'),
+          );
+      }
+    });
+    expect(await undoThenRedo(editor)).toEqual([
+      'Undone, removed italic from some words',
+      'Redone, added italic to some words',
+    ]);
+  });
+
   test('with nothing to undo it still says Undone', async () => {
     using editor = buildWithHistory();
     editor.dispatchCommand(UNDO_COMMAND);
