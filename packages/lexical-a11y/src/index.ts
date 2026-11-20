@@ -14,11 +14,13 @@ import {
   signal,
 } from '@lexical/extension';
 import {
+  $getRoot,
   COMMAND_PRIORITY_LOW,
   createRefCountedRegistry,
   defineExtension,
   getActiveElementDeep,
   getComposedEventTarget,
+  HISTORIC_TAG,
   isDOMShadowRoot,
   isHTMLElement,
   KEY_DOWN_COMMAND,
@@ -578,53 +580,284 @@ export interface HistoryAnnounceExtensionConfig {
   undone: string;
   /** Message announced after a redo. */
   redone: string;
+  /** Words used after "Undone" or "Redone" to say what changed. */
+  added: string;
+  changed: string;
+  removed: string;
+  restored: string;
+  /** When `true` (the default), the announcement says what the undo or redo
+   * changed, for example "Undone, restored a table and 2 lists". When `false`,
+   * only `undone` / `redone` are announced, immediately. */
+  detail: boolean;
   /** When `true`, undo / redo are not announced. Toggle at runtime via the
    * output signal. Default `false`. */
   disabled: boolean;
 }
 
+interface BlockInfo {
+  key: string;
+  text: string;
+  type: string;
+}
+
+// Block kinds in the order they are spoken: the ones worth hearing about
+// first, plain paragraphs last.
+const BLOCK_NAMES: readonly (readonly [string, string, string])[] = [
+  ['table', 'table', 'tables'],
+  ['list', 'list', 'lists'],
+  ['image', 'image', 'images'],
+  ['code', 'code block', 'code blocks'],
+  ['quote', 'block quote', 'block quotes'],
+  ['heading', 'heading', 'headings'],
+  ['horizontalrule', 'horizontal rule', 'horizontal rules'],
+  ['paragraph', 'paragraph', 'paragraphs'],
+];
+const MAX_KINDS_SPOKEN = 5;
+const MAX_WORDS_SPOKEN = 6;
+const MAX_WORDS_FOR_SMALL_CHANGE = 8;
+
+function $readBlocks(): BlockInfo[] {
+  return $getRoot()
+    .getChildren()
+    .map(node => ({
+      key: node.getKey(),
+      text: node.getTextContent(),
+      type: node.getType(),
+    }));
+}
+
+function wordsOf(text: string): string[] {
+  return text.split(/\s+/).filter(Boolean);
+}
+
+function readWords(text: string): string {
+  const words = wordsOf(text);
+  return words.length > MAX_WORDS_SPOKEN
+    ? `${words.slice(0, MAX_WORDS_SPOKEN).join(' ')} and more`
+    : words.join(' ');
+}
+
+function countPhrase(count: number, singular: string, plural: string): string {
+  if (count > 1) {
+    return `${count} ${plural}`;
+  }
+  return `${/^[aeiou]/.test(singular) ? 'an' : 'a'} ${singular}`;
+}
+
+function summarizeBlocks(blocks: BlockInfo[]): string {
+  const counts = new Map<string, number>();
+  for (const {type} of blocks) {
+    counts.set(type, (counts.get(type) || 0) + 1);
+  }
+  const phrases: string[] = [];
+  let other = 0;
+  for (const [type, count] of counts) {
+    if (!BLOCK_NAMES.some(([known]) => known === type)) {
+      other += count;
+    }
+  }
+  for (const [type, singular, plural] of BLOCK_NAMES) {
+    const count = counts.get(type);
+    if (count) {
+      phrases.push(countPhrase(count, singular, plural));
+    }
+  }
+  if (other) {
+    phrases.push(countPhrase(other, 'block', 'blocks'));
+  }
+  const spoken = phrases.slice(0, MAX_KINDS_SPOKEN);
+  if (phrases.length > MAX_KINDS_SPOKEN) {
+    spoken.push('more');
+  }
+  return spoken.length > 1
+    ? `${spoken.slice(0, -1).join(', ')} and ${spoken[spoken.length - 1]}`
+    : spoken[0];
+}
+
+// What was typed or removed inside a block: the text between the shared start
+// and the shared end of the old and new text.
+function changedText(
+  before: string,
+  after: string,
+): {added: string; removed: string} {
+  let start = 0;
+  while (
+    start < before.length &&
+    start < after.length &&
+    before[start] === after[start]
+  ) {
+    start++;
+  }
+  let end = 0;
+  while (
+    end < before.length - start &&
+    end < after.length - start &&
+    before[before.length - 1 - end] === after[after.length - 1 - end]
+  ) {
+    end++;
+  }
+  return {
+    added: after.slice(start, after.length - end),
+    removed: before.slice(start, before.length - end),
+  };
+}
+
+/** Says what an undo or redo did to the document, or `null` when it cannot
+ * be put into words (a formatting-only change, for instance). */
+function describeChange(
+  before: BlockInfo[],
+  after: BlockInfo[],
+  wasUndo: boolean,
+  words: {added: string; changed: string; removed: string; restored: string},
+): string | null {
+  const beforeByKey = new Map(before.map(block => [block.key, block]));
+  const afterByKey = new Map(after.map(block => [block.key, block]));
+  // An editor never lets the document go empty, so deleting everything leaves
+  // one blank paragraph. Blank paragraphs are not worth saying.
+  const isWorthSaying = (block: BlockInfo) =>
+    block.type !== 'paragraph' || block.text.trim() !== '';
+  const gone = before.filter(
+    block => !afterByKey.has(block.key) && isWorthSaying(block),
+  );
+  const appeared = after.filter(
+    block => !beforeByKey.has(block.key) && isWorthSaying(block),
+  );
+  const appearVerb = wasUndo ? words.restored : words.added;
+
+  if (gone.length || appeared.length) {
+    const verb =
+      appeared.length && gone.length
+        ? words.changed
+        : appeared.length
+          ? appearVerb
+          : words.removed;
+    const blocks = [...gone, ...appeared];
+    if (blocks.length === 1 && /^(paragraph|heading)$/.test(blocks[0].type)) {
+      const spoken = wordsOf(blocks[0].text);
+      if (spoken.length > 0 && spoken.length <= MAX_WORDS_FOR_SMALL_CHANGE) {
+        return `${verb} ${spoken.join(' ')}`;
+      }
+    }
+    return `${verb} ${summarizeBlocks(blocks)}`;
+  }
+
+  let added = '';
+  let removed = '';
+  for (const block of after) {
+    const old = beforeByKey.get(block.key);
+    if (old && old.text !== block.text) {
+      const change = changedText(old.text, block.text);
+      added += ` ${change.added}`;
+      removed += ` ${change.removed}`;
+    }
+  }
+  const addedWords = readWords(added);
+  const removedWords = readWords(removed);
+  if (addedWords && removedWords) {
+    return `${words.changed} ${addedWords}`;
+  }
+  if (addedWords) {
+    return `${appearVerb} ${addedWords}`;
+  }
+  if (removedWords) {
+    return `${words.removed} ${removedWords}`;
+  }
+  return null;
+}
+
 /**
  * Platform-independent extension that announces undo / redo through the
- * `AriaLiveRegionExtension`'s shared sink.
+ * `AriaLiveRegionExtension`'s shared sink, and says what changed.
  */
 export const HistoryAnnounceExtension = defineExtension({
   build: (_editor, config) => namedSignals(config),
   config: safeCast<HistoryAnnounceExtensionConfig>({
+    added: 'added',
+    changed: 'changed',
+    detail: true,
     disabled: false,
     redone: 'Redone',
+    removed: 'removed',
+    restored: 'restored',
     undone: 'Undone',
   }),
   dependencies: [AriaLiveRegionExtension],
   name: '@lexical/a11y/HistoryAnnounce',
   register(editor, _config, state) {
-    const {disabled, redone, undone} = state.getOutput();
+    const output = state.getOutput();
     const {announce} = state.getDependency(AriaLiveRegionExtension).output;
     // Gate registration on `disabled` from an effect so a disabled announcer
     // adds no command overhead at all. Peek the message signals at dispatch
-    // time so changing them doesn't re-register. Both return false to keep the
-    // history command chain intact.
-    return effect(() =>
-      disabled.value
-        ? undefined
-        : mergeRegister(
-            editor.registerCommand(
-              UNDO_COMMAND,
-              () => {
-                announce(undone.peek());
-                return false;
+    // time so changing them doesn't re-register. Both command handlers return
+    // false to keep the history command chain intact.
+    return effect(() => {
+      if (output.disabled.value) {
+        return undefined;
+      }
+      let pending: 'undo' | 'redo' | null = null;
+      let fallback: ReturnType<typeof setTimeout> | undefined;
+      const plain = (kind: 'undo' | 'redo') =>
+        kind === 'undo' ? output.undone.peek() : output.redone.peek();
+      const begin = (kind: 'undo' | 'redo') => {
+        if (!output.detail.peek()) {
+          announce(plain(kind));
+          return false;
+        }
+        // The history extension handles the command after this handler runs.
+        // Wait for the update it makes, and fall back to the plain message
+        // when nothing changes (an empty history).
+        pending = kind;
+        clearTimeout(fallback);
+        fallback = setTimeout(() => {
+          if (pending) {
+            announce(plain(pending));
+            pending = null;
+          }
+        }, 0);
+        return false;
+      };
+      return mergeRegister(
+        editor.registerCommand(
+          UNDO_COMMAND,
+          () => begin('undo'),
+          COMMAND_PRIORITY_LOW,
+        ),
+        editor.registerCommand(
+          REDO_COMMAND,
+          () => begin('redo'),
+          COMMAND_PRIORITY_LOW,
+        ),
+        editor.registerUpdateListener(
+          ({editorState, prevEditorState, tags}) => {
+            if (!pending || !tags.has(HISTORIC_TAG)) {
+              return;
+            }
+            const kind = pending;
+            const change = describeChange(
+              prevEditorState.read($readBlocks),
+              editorState.read($readBlocks),
+              kind === 'undo',
+              {
+                added: output.added.peek(),
+                changed: output.changed.peek(),
+                removed: output.removed.peek(),
+                restored: output.restored.peek(),
               },
-              COMMAND_PRIORITY_LOW,
-            ),
-            editor.registerCommand(
-              REDO_COMMAND,
-              () => {
-                announce(redone.peek());
-                return false;
-              },
-              COMMAND_PRIORITY_LOW,
-            ),
-          ),
-    );
+            );
+            // An undo can make more than one update, and the first may change
+            // nothing. Keep waiting for one that does; the timer speaks the
+            // plain message if none comes.
+            if (change === null) {
+              return;
+            }
+            pending = null;
+            clearTimeout(fallback);
+            announce(`${plain(kind)}, ${change}`);
+          },
+        ),
+        () => clearTimeout(fallback),
+      );
+    });
   },
 });
 
