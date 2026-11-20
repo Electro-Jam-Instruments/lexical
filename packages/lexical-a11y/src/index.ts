@@ -629,6 +629,7 @@ const TEXT_FORMATS: readonly (readonly [number, string])[] = [
   [64, 'superscript'],
 ];
 const MAX_FORMATS_SPOKEN = 2;
+const FORMAT_NAMES = [...TEXT_FORMATS.map(([, name]) => name), 'link'];
 
 // Block kinds in the order they are spoken: the ones worth hearing about
 // first, plain paragraphs last.
@@ -657,6 +658,9 @@ function $collectFormats(
       }
     }
   } else if ($isElementNode(node)) {
+    if (/^(link|autolink)$/.test(node.getType())) {
+      formats.link = (formats.link || '') + node.getTextContent();
+    }
     for (const child of node.getChildren()) {
       $collectFormats(child, formats);
     }
@@ -786,6 +790,51 @@ function changedText(
   };
 }
 
+const isWordCharacter = (character: string | undefined) =>
+  character !== undefined && /[\p{L}\p{N}]/u.test(character);
+
+// The changed text, widened to whole words: a step that removes the end of
+// "Title" is read as "Title", not "itle".
+function changedWords(
+  before: string,
+  after: string,
+): {added: string; removed: string} {
+  const change = changedText(before, after);
+  const widen = (text: string, start: number, end: number): string => {
+    let from = start;
+    let to = end;
+    while (
+      from > 0 &&
+      isWordCharacter(text[from]) &&
+      isWordCharacter(text[from - 1])
+    ) {
+      from--;
+    }
+    while (
+      to < text.length &&
+      isWordCharacter(text[to - 1]) &&
+      isWordCharacter(text[to])
+    ) {
+      to++;
+    }
+    return text.slice(from, to);
+  };
+  let start = 0;
+  while (
+    start < before.length &&
+    start < after.length &&
+    before[start] === after[start]
+  ) {
+    start++;
+  }
+  return {
+    added: change.added ? widen(after, start, start + change.added.length) : '',
+    removed: change.removed
+      ? widen(before, start, start + change.removed.length)
+      : '',
+  };
+}
+
 /** Says what an undo or redo did to the document. Returns `null` when it
  * cannot be put into words (a formatting-only change, for instance) and an
  * empty string when another announcer already says it. */
@@ -828,7 +877,9 @@ function describeChange(
     if (
       gone.length > 0 &&
       gone.length === appeared.length &&
-      gone.every((block, index) => block.text === appeared[index].text)
+      gone.every((block, index) =>
+        sameSubject(block.text, appeared[index].text),
+      )
     ) {
       // Quotes and headings announce their own change, which says more than
       // this could; stay quiet so theirs is the one heard.
@@ -859,7 +910,7 @@ function describeChange(
   for (const block of after) {
     const old = beforeByKey.get(block.key);
     if (old && old.text !== block.text) {
-      const change = changedText(old.text, block.text);
+      const change = changedWords(old.text, block.text);
       added += ` ${change.added}`;
       removed += ` ${change.removed}`;
     }
@@ -876,7 +927,7 @@ function describeChange(
     // Typing *some words* makes the words italic and drops the asterisks, and
     // an undo brings the asterisks back. The words are the same and only the
     // markup and the format moved, so say the format.
-    return justPunctuationDiffers(added, removed) && formatChange
+    return wordsOverlap(added, removed) && formatChange
       ? formatChange
       : `${words.changed} ${addedWords}`;
   }
@@ -889,13 +940,38 @@ function describeChange(
   return formatChange;
 }
 
-function justPunctuationDiffers(a: string, b: string): boolean {
-  const lettersOf = (text: string) =>
-    text
-      .replace(/[^\p{L}\p{N}]+/gu, ' ')
-      .trim()
-      .toLowerCase();
-  return lettersOf(a) !== '' && lettersOf(a) === lettersOf(b);
+// The words of a text, with the punctuation, markdown markers and case left out.
+function lettersOf(text: string): string {
+  return text
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+// The same words, allowing for a block that is only markdown markers such as
+// "# " (the step that undoes a shortcut also undoes the first letter typed).
+function sameSubject(a: string, b: string): boolean {
+  // A numbered list's "1. " marker is not part of what the block says.
+  const withoutMarker = (text: string) => text.replace(/^\s*\d+[.)]\s*/, '');
+  const first = withoutMarker(a);
+  const second = withoutMarker(b);
+  return (
+    lettersOf(first) === '' ||
+    lettersOf(second) === '' ||
+    wordsOverlap(first, second)
+  );
+}
+
+// True when one text holds the words of the other, as "some words" does inside
+// "*some words*" or "[some words](https://example.com)".
+function wordsOverlap(a: string, b: string): boolean {
+  const first = lettersOf(a);
+  const second = lettersOf(b);
+  return (
+    first !== '' &&
+    second !== '' &&
+    (first.includes(second) || second.includes(first))
+  );
 }
 
 function listItemPhrase(items: ListItemInfo[]): string {
@@ -977,7 +1053,7 @@ function describeFormatChange(
     if (!old) {
       continue;
     }
-    for (const [, name] of TEXT_FORMATS) {
+    for (const name of FORMAT_NAMES) {
       const was = old.formats[name] || '';
       const now = block.formats[name] || '';
       if (was === now) {
