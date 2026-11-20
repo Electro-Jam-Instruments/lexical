@@ -24,6 +24,7 @@ import {
 } from '@lexical/list';
 import {
   $createHeadingNode,
+  $createQuoteNode,
   HeadingAnnounceExtension,
   RichTextExtension,
 } from '@lexical/rich-text';
@@ -397,6 +398,45 @@ describe('HistoryAnnounceExtension says what changed', () => {
       'Undone, indented list item beta, level 2',
       'Redone, outdented list item beta, level 1',
     ]);
+  });
+
+  test('a paragraph turned into a list says what it became', async () => {
+    using editor = buildWithHistory();
+    push(editor, () => {
+      $getRoot()
+        .clear()
+        .append($createParagraphNode().append($createTextNode('buy milk')));
+    });
+    push(editor, () => {
+      $getRoot()
+        .clear()
+        .append(
+          $createListNode('bullet').append(
+            $createListItemNode().append($createTextNode('buy milk')),
+          ),
+        );
+    });
+    expect(await undoThenRedo(editor)).toEqual([
+      'Undone, changed to a paragraph',
+      'Redone, changed to a list',
+    ]);
+  });
+
+  test('a paragraph turned into a quote is left to the quote announcer', async () => {
+    using editor = buildWithHistory();
+    push(editor, () => {
+      $getRoot()
+        .clear()
+        .append($createParagraphNode().append($createTextNode('wise words')));
+    });
+    push(editor, () => {
+      $getRoot()
+        .clear()
+        .append($createQuoteNode().append($createTextNode('wise words')));
+    });
+    const [undone, redone] = await undoThenRedo(editor);
+    expect(undone).not.toMatch(/^Undone/);
+    expect(redone).not.toMatch(/^Redone/);
   });
 
   test('with nothing to undo it still says Undone', async () => {

@@ -786,8 +786,9 @@ function changedText(
   };
 }
 
-/** Says what an undo or redo did to the document, or `null` when it cannot
- * be put into words (a formatting-only change, for instance). */
+/** Says what an undo or redo did to the document. Returns `null` when it
+ * cannot be put into words (a formatting-only change, for instance) and an
+ * empty string when another announcer already says it. */
 function describeChange(
   before: BlockInfo[],
   after: BlockInfo[],
@@ -822,6 +823,22 @@ function describeChange(
         : appeared.length
           ? appearVerb
           : words.removed;
+    // The same text in a different kind of block: a paragraph made a list, a
+    // quote turned back into a paragraph.
+    if (
+      gone.length > 0 &&
+      gone.length === appeared.length &&
+      gone.every((block, index) => block.text === appeared[index].text)
+    ) {
+      // Quotes and headings announce their own change, which says more than
+      // this could; stay quiet so theirs is the one heard.
+      const announcedElsewhere = [...gone, ...appeared].some(block =>
+        /^(quote|heading)$/.test(block.type),
+      );
+      return announcedElsewhere
+        ? ''
+        : `${words.changed} to ${summarizeBlocks(appeared)}`;
+    }
     const blocks = [...gone, ...appeared];
     if (blocks.length === 1 && /^(paragraph|heading)$/.test(blocks[0].type)) {
       const spoken = wordsOf(blocks[0].text);
@@ -1074,7 +1091,9 @@ export const HistoryAnnounceExtension = defineExtension({
             }
             pending = null;
             clearTimeout(fallback);
-            announce(`${plain(kind)}, ${change}`);
+            if (change !== '') {
+              announce(`${plain(kind)}, ${change}`);
+            }
           },
         ),
         () => clearTimeout(fallback),
