@@ -15,6 +15,8 @@ import {
 } from '@lexical/extension';
 import {
   $getRoot,
+  $isElementNode,
+  $isTextNode,
   COMMAND_PRIORITY_LOW,
   createRefCountedRegistry,
   defineExtension,
@@ -25,6 +27,7 @@ import {
   isHTMLElement,
   KEY_DOWN_COMMAND,
   type LexicalEditor,
+  type LexicalNode,
   mergeRegister,
   REDO_COMMAND,
   type RefCountedRegistry,
@@ -595,10 +598,26 @@ export interface HistoryAnnounceExtensionConfig {
 }
 
 interface BlockInfo {
+  /** For each text format in use, the text that carries it. */
+  formats: Record<string, string>;
   key: string;
   text: string;
   type: string;
 }
+
+// The text format bits, in the order they are spoken. These are the values
+// `TextNode` uses for its format flags.
+const TEXT_FORMATS: readonly (readonly [number, string])[] = [
+  [1, 'bold'],
+  [2, 'italic'],
+  [8, 'underline'],
+  [4, 'strikethrough'],
+  [16, 'code'],
+  [128, 'highlight'],
+  [32, 'subscript'],
+  [64, 'superscript'],
+];
+const MAX_FORMATS_SPOKEN = 2;
 
 // Block kinds in the order they are spoken: the ones worth hearing about
 // first, plain paragraphs last.
@@ -616,14 +635,36 @@ const MAX_KINDS_SPOKEN = 5;
 const MAX_WORDS_SPOKEN = 6;
 const MAX_WORDS_FOR_SMALL_CHANGE = 8;
 
+function $collectFormats(
+  node: LexicalNode,
+  formats: Record<string, string>,
+): void {
+  if ($isTextNode(node)) {
+    for (const [bit, name] of TEXT_FORMATS) {
+      if (node.getFormat() & bit) {
+        formats[name] = (formats[name] || '') + node.getTextContent();
+      }
+    }
+  } else if ($isElementNode(node)) {
+    for (const child of node.getChildren()) {
+      $collectFormats(child, formats);
+    }
+  }
+}
+
 function $readBlocks(): BlockInfo[] {
   return $getRoot()
     .getChildren()
-    .map(node => ({
-      key: node.getKey(),
-      text: node.getTextContent(),
-      type: node.getType(),
-    }));
+    .map(node => {
+      const formats: Record<string, string> = {};
+      $collectFormats(node, formats);
+      return {
+        formats,
+        key: node.getKey(),
+        text: node.getTextContent(),
+        type: node.getType(),
+      };
+    });
 }
 
 function wordsOf(text: string): string[] {
@@ -762,7 +803,66 @@ function describeChange(
   if (removedWords) {
     return `${words.removed} ${removedWords}`;
   }
-  return null;
+  return describeFormatChange(before, after, appearVerb, words.removed);
+}
+
+// A format that now covers more text was added (or, after an undo, restored);
+// one that covers less was removed. The text it moved onto is read back.
+function describeFormatChange(
+  before: BlockInfo[],
+  after: BlockInfo[],
+  appearVerb: string,
+  removedVerb: string,
+): string | null {
+  const beforeByKey = new Map(before.map(block => [block.key, block]));
+  const gained = new Map<string, string>();
+  const lost = new Map<string, string>();
+  for (const block of after) {
+    const old = beforeByKey.get(block.key);
+    if (!old) {
+      continue;
+    }
+    for (const [, name] of TEXT_FORMATS) {
+      const was = old.formats[name] || '';
+      const now = block.formats[name] || '';
+      if (was === now) {
+        continue;
+      }
+      const change = changedText(was, now);
+      if (now.length > was.length) {
+        gained.set(name, `${gained.get(name) || ''} ${change.added}`);
+      } else {
+        lost.set(name, `${lost.get(name) || ''} ${change.removed}`);
+      }
+    }
+  }
+  const clauses: string[] = [];
+  const clause = (
+    names: Map<string, string>,
+    verb: string,
+    preposition: string,
+  ) => {
+    if (names.size === 0) {
+      return;
+    }
+    const spoken = [...names.keys()];
+    const shown = spoken.slice(0, MAX_FORMATS_SPOKEN);
+    const label =
+      shown.length > 1
+        ? `${shown.slice(0, -1).join(', ')} and ${shown[shown.length - 1]}`
+        : shown[0];
+    const where = readWords(
+      [...new Set([...names.values()].map(text => text.trim()))].join(' '),
+    );
+    clauses.push(
+      `${verb} ${label}${spoken.length > shown.length ? ' and more' : ''}${
+        where ? ` ${preposition} ${where}` : ''
+      }`,
+    );
+  };
+  clause(lost, removedVerb, 'from');
+  clause(gained, appearVerb, 'to');
+  return clauses.length ? clauses.join(', ') : null;
 }
 
 /**

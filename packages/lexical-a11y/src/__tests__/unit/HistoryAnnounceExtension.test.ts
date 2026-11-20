@@ -30,9 +30,11 @@ import {
   $createTextNode,
   $getRoot,
   $isElementNode,
+  $isTextNode,
   configExtension,
   HISTORY_PUSH_TAG,
   REDO_COMMAND,
+  type TextNode,
   UNDO_COMMAND,
 } from 'lexical';
 import {afterEach, describe, expect, onTestFinished, test} from 'vitest';
@@ -167,6 +169,15 @@ describe('HistoryAnnounceExtension', () => {
   });
 });
 
+function $firstText(): TextNode {
+  const paragraph = $getRoot().getFirstChild();
+  const text = $isElementNode(paragraph) ? paragraph.getFirstChild() : null;
+  if (!$isTextNode(text)) {
+    throw new Error('expected a text node');
+  }
+  return text;
+}
+
 describe('HistoryAnnounceExtension says what changed', () => {
   function buildWithHistory(detail = true) {
     const editor = buildEditorFromExtensions(
@@ -255,6 +266,45 @@ describe('HistoryAnnounceExtension says what changed', () => {
     expect(readLiveRegion()).toBe(
       'Undone, removed one two three four five six and more',
     );
+  });
+
+  test('undoing and redoing a format says which format and where', async () => {
+    using editor = buildWithHistory();
+    push(editor, () => {
+      $getRoot()
+        .clear()
+        .append($createParagraphNode().append($createTextNode('hello world')));
+    });
+    push(editor, () => {
+      const [first] = $firstText().splitText(5);
+      first.toggleFormat('bold');
+      first.toggleFormat('italic');
+    });
+    editor.dispatchCommand(UNDO_COMMAND);
+    await tick();
+    expect(readLiveRegion()).toBe('Undone, removed bold and italic from hello');
+    editor.dispatchCommand(REDO_COMMAND);
+    await tick();
+    expect(readLiveRegion()).toBe('Redone, added bold and italic to hello');
+  });
+
+  test('undoing the removal of a format says it came back', async () => {
+    using editor = buildWithHistory();
+    push(editor, () => {
+      $getRoot()
+        .clear()
+        .append(
+          $createParagraphNode().append(
+            $createTextNode('hello').toggleFormat('underline'),
+          ),
+        );
+    });
+    push(editor, () => {
+      $firstText().toggleFormat('underline');
+    });
+    editor.dispatchCommand(UNDO_COMMAND);
+    await tick();
+    expect(readLiveRegion()).toBe('Undone, restored underline to hello');
   });
 
   test('with nothing to undo it still says Undone', async () => {
