@@ -586,6 +586,8 @@ export interface HistoryAnnounceExtensionConfig {
   /** Words used after "Undone" or "Redone" to say what changed. */
   added: string;
   changed: string;
+  indented: string;
+  outdented: string;
   removed: string;
   restored: string;
   /** When `true` (the default), the announcement says what the undo or redo
@@ -597,9 +599,18 @@ export interface HistoryAnnounceExtensionConfig {
   disabled: boolean;
 }
 
+interface ListItemInfo {
+  /** 1 for an item in the outermost list. */
+  depth: number;
+  key: string;
+  text: string;
+}
+
 interface BlockInfo {
   /** For each text format in use, the text that carries it. */
   formats: Record<string, string>;
+  /** The list items of a list, with how deeply each one is nested. */
+  items: ListItemInfo[];
   key: string;
   text: string;
   type: string;
@@ -652,14 +663,46 @@ function $collectFormats(
   }
 }
 
+// Collects the items that hold text, not the items that only wrap a nested
+// list, with how deeply each is nested.
+function $collectListItems(
+  node: LexicalNode,
+  depth: number,
+  out: ListItemInfo[],
+): void {
+  if (!$isElementNode(node)) {
+    return;
+  }
+  const type = node.getType();
+  if (type === 'list') {
+    for (const child of node.getChildren()) {
+      $collectListItems(child, depth + 1, out);
+    }
+  } else if (type === 'listitem') {
+    const children = node.getChildren();
+    if (children.some(child => child.getType() === 'list')) {
+      for (const child of children) {
+        $collectListItems(child, depth, out);
+      }
+    } else {
+      out.push({depth, key: node.getKey(), text: node.getTextContent()});
+    }
+  }
+}
+
 function $readBlocks(): BlockInfo[] {
   return $getRoot()
     .getChildren()
     .map(node => {
       const formats: Record<string, string> = {};
       $collectFormats(node, formats);
+      const items: ListItemInfo[] = [];
+      if (node.getType() === 'list') {
+        $collectListItems(node, 0, items);
+      }
       return {
         formats,
+        items,
         key: node.getKey(),
         text: node.getTextContent(),
         type: node.getType(),
@@ -749,7 +792,14 @@ function describeChange(
   before: BlockInfo[],
   after: BlockInfo[],
   wasUndo: boolean,
-  words: {added: string; changed: string; removed: string; restored: string},
+  words: {
+    added: string;
+    changed: string;
+    indented: string;
+    outdented: string;
+    removed: string;
+    restored: string;
+  },
 ): string | null {
   const beforeByKey = new Map(before.map(block => [block.key, block]));
   const afterByKey = new Map(after.map(block => [block.key, block]));
@@ -782,6 +832,11 @@ function describeChange(
     return `${verb} ${summarizeBlocks(blocks)}`;
   }
 
+  const listChange = describeListChange(before, after, appearVerb, words);
+  if (listChange) {
+    return listChange;
+  }
+
   let added = '';
   let removed = '';
   for (const block of after) {
@@ -804,6 +859,69 @@ function describeChange(
     return `${words.removed} ${removedWords}`;
   }
   return describeFormatChange(before, after, appearVerb, words.removed);
+}
+
+function listItemPhrase(items: ListItemInfo[]): string {
+  if (items.length === 1) {
+    const spoken = wordsOf(items[0].text);
+    return spoken.length > 0 && spoken.length <= MAX_WORDS_FOR_SMALL_CHANGE
+      ? `list item ${spoken.join(' ')}`
+      : 'a list item';
+  }
+  return `${items.length} list items`;
+}
+
+// Items added to or removed from a list, and items moved to another level.
+function describeListChange(
+  before: BlockInfo[],
+  after: BlockInfo[],
+  appearVerb: string,
+  words: {indented: string; outdented: string; removed: string},
+): string | null {
+  const beforeByKey = new Map(before.map(block => [block.key, block]));
+  const appeared: ListItemInfo[] = [];
+  const gone: ListItemInfo[] = [];
+  const deeper: ListItemInfo[] = [];
+  const shallower: ListItemInfo[] = [];
+  for (const block of after) {
+    const old = beforeByKey.get(block.key);
+    if (!old || block.type !== 'list') {
+      continue;
+    }
+    const oldItems = new Map(old.items.map(item => [item.key, item]));
+    const newItems = new Map(block.items.map(item => [item.key, item]));
+    for (const item of block.items) {
+      const was = oldItems.get(item.key);
+      if (!was) {
+        appeared.push(item);
+      } else if (item.depth > was.depth) {
+        deeper.push(item);
+      } else if (item.depth < was.depth) {
+        shallower.push(item);
+      }
+    }
+    for (const item of old.items) {
+      if (!newItems.has(item.key)) {
+        gone.push(item);
+      }
+    }
+  }
+  const clauses: string[] = [];
+  if (gone.length) {
+    clauses.push(`${words.removed} ${listItemPhrase(gone)}`);
+  }
+  if (appeared.length) {
+    clauses.push(`${appearVerb} ${listItemPhrase(appeared)}`);
+  }
+  for (const [moved, verb] of [
+    [deeper, words.indented],
+    [shallower, words.outdented],
+  ] as const) {
+    if (moved.length) {
+      clauses.push(`${verb} ${listItemPhrase(moved)}, level ${moved[0].depth}`);
+    }
+  }
+  return clauses.length ? clauses.join(', ') : null;
 }
 
 // A format that now covers more text was added (or, after an undo, restored);
@@ -876,6 +994,8 @@ export const HistoryAnnounceExtension = defineExtension({
     changed: 'changed',
     detail: true,
     disabled: false,
+    indented: 'indented',
+    outdented: 'outdented',
     redone: 'Redone',
     removed: 'removed',
     restored: 'restored',
@@ -940,6 +1060,8 @@ export const HistoryAnnounceExtension = defineExtension({
               {
                 added: output.added.peek(),
                 changed: output.changed.peek(),
+                indented: output.indented.peek(),
+                outdented: output.outdented.peek(),
                 removed: output.removed.peek(),
                 restored: output.restored.peek(),
               },

@@ -17,7 +17,10 @@ import {HistoryExtension} from '@lexical/history';
 import {
   $createListItemNode,
   $createListNode,
+  $isListItemNode,
+  $isListNode,
   ListExtension,
+  type ListItemNode,
 } from '@lexical/list';
 import {
   $createHeadingNode,
@@ -33,6 +36,8 @@ import {
   $isTextNode,
   configExtension,
   HISTORY_PUSH_TAG,
+  INDENT_CONTENT_COMMAND,
+  OUTDENT_CONTENT_COMMAND,
   REDO_COMMAND,
   type TextNode,
   UNDO_COMMAND,
@@ -56,7 +61,9 @@ function mountRoot(editor: LexicalEditorWithDispose): void {
 const tick = () => new Promise(resolve => setTimeout(resolve, 5));
 
 function readLiveRegion(): string {
-  return document.body.querySelector('[aria-live]')!.textContent ?? '';
+  return (
+    [...document.body.querySelectorAll('[aria-live]')].pop()!.textContent ?? ''
+  );
 }
 
 describe('HistoryAnnounceExtension', () => {
@@ -305,6 +312,91 @@ describe('HistoryAnnounceExtension says what changed', () => {
     editor.dispatchCommand(UNDO_COMMAND);
     await tick();
     expect(readLiveRegion()).toBe('Undone, restored underline to hello');
+  });
+
+  function seedList(editor: ReturnType<typeof buildWithHistory>) {
+    push(editor, () => {
+      const list = $createListNode('bullet');
+      for (const text of ['alpha', 'beta', 'gamma']) {
+        list.append($createListItemNode().append($createTextNode(text)));
+      }
+      $getRoot().clear().append(list);
+    });
+  }
+
+  function $itemNamed(name: string): ListItemNode {
+    const list = $getRoot().getFirstChild();
+    const found = $isListNode(list)
+      ? list
+          .getChildren()
+          .find(
+            child => $isListItemNode(child) && child.getTextContent() === name,
+          )
+      : undefined;
+    if (!$isListItemNode(found)) {
+      throw new Error(`no list item ${name}`);
+    }
+    return found;
+  }
+
+  async function undoThenRedo(editor: ReturnType<typeof buildWithHistory>) {
+    editor.dispatchCommand(UNDO_COMMAND);
+    await tick();
+    const undone = readLiveRegion();
+    editor.dispatchCommand(REDO_COMMAND);
+    await tick();
+    return [undone, readLiveRegion()];
+  }
+
+  test('adding and removing a list item says it was a list item', async () => {
+    using added = buildWithHistory();
+    seedList(added);
+    push(added, () => {
+      const list = $getRoot().getFirstChild();
+      if ($isListNode(list)) {
+        list.append($createListItemNode().append($createTextNode('delta')));
+      }
+    });
+    expect(await undoThenRedo(added)).toEqual([
+      'Undone, removed list item delta',
+      'Redone, added list item delta',
+    ]);
+
+    using removed = buildWithHistory();
+    seedList(removed);
+    push(removed, () => $itemNamed('beta').remove());
+    expect(await undoThenRedo(removed)).toEqual([
+      'Undone, restored list item beta',
+      'Redone, removed list item beta',
+    ]);
+  });
+
+  test('indent and outdent say the move and the new level, and the list announcer stays quiet', async () => {
+    using indented = buildWithHistory();
+    seedList(indented);
+    push(indented, () => {
+      $itemNamed('beta').selectStart();
+      indented.dispatchCommand(INDENT_CONTENT_COMMAND, undefined);
+    });
+    expect(await undoThenRedo(indented)).toEqual([
+      'Undone, outdented list item beta, level 1',
+      'Redone, indented list item beta, level 2',
+    ]);
+
+    using outdented = buildWithHistory();
+    seedList(outdented);
+    push(outdented, () => {
+      $itemNamed('beta').selectStart();
+      outdented.dispatchCommand(INDENT_CONTENT_COMMAND, undefined);
+    });
+    push(outdented, () => {
+      $itemNamed('beta').selectStart();
+      outdented.dispatchCommand(OUTDENT_CONTENT_COMMAND, undefined);
+    });
+    expect(await undoThenRedo(outdented)).toEqual([
+      'Undone, indented list item beta, level 2',
+      'Redone, outdented list item beta, level 1',
+    ]);
   });
 
   test('with nothing to undo it still says Undone', async () => {

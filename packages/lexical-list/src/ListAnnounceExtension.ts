@@ -15,6 +15,7 @@ import {
   $isRangeSelection,
   COMMAND_PRIORITY_CRITICAL,
   defineExtension,
+  HISTORIC_TAG,
   INDENT_CONTENT_COMMAND,
   type NodeKey,
   OUTDENT_CONTENT_COMMAND,
@@ -249,12 +250,14 @@ export const ListAnnounceExtension = defineExtension({
         COMMAND_PRIORITY_CRITICAL,
       );
       const removeUpdate = editor.registerUpdateListener(
-        ({dirtyElements, editorState, prevEditorState}) => {
+        ({dirtyElements, editorState, prevEditorState, tags}) => {
           if (pending !== null) {
             finishMove();
             return;
           }
-          if (dirtyElements.size === 0) {
+          // An undo or redo is announced by the history announcer, which says
+          // what it changed.
+          if (dirtyElements.size === 0 || tags.has(HISTORIC_TAG)) {
             return;
           }
           // The item the caret is in changed level without this announcer
